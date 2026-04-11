@@ -61,5 +61,40 @@ Menü mit klickbaren Buttons: Spielen / Bestenliste / Admin
 
 ⚙️ Admin-Bereich (PIN: 1234)
 
+17/17 ✓ — alles drin und canvas-Balance stimmt:Presented filePresented fileHier eine Zusammenfassung aller Änderungen:
+🛡 Schild & Glücksbaum
+
+Schild lädt sofort beim Berühren des Baums auf (3 Sek. Kontakt), nicht erst nach langer Wartezeit
+Countdown-Anzeige über dem Baum während des Aufladens
+Pulsierender Leuchtring am Baum wenn man in der Nähe ist
+
+🌋 Magmaplanet
+
+Nur noch 5 Magmalöcher statt 12
+Magmamonster schießen jetzt auch auf den Spieler (Reichweite 500px, im Kindermodus langsamer und seltener)
+Neue 10-stufige Sprungtreppe rechts der Burg — gut sichtbar, klar nach oben führend bis zur Burghöhe
+
+🎵 Musik
+
+Neues mehrstimmiges Space-Theme: Basspad (Sine) + Melodie (Triangle) + Puls-Accent (Sawtooth)
+Lookahead-Scheduler — spielt endlos ohne Lücken im Hintergrund
+🔊/🔇-Knopf jederzeit verfügbar
+
+🏠 Erde: Haus & Schatztruhe
+
+Krankenhaus (linke Seite) — H-Taste drücken → Dialog: Herz für 20 Kronen kaufen
+Schatztruhe erscheint nach Boss-Sieg — O-Taste → 30 Kronen abholen
+Alle Dialoge per J/N-Taste oder Mausklick bedienbar
+
+🎮 Kindermodus
+
+Toggle-Knopf auf dem Startbildschirm
+Halbe Schiffsgeschwindigkeit, sanfterer Schub, langsamere Monster, seltener Magmamonster-Schüsse
+Grüner Badge „🐣 KINDERMODUS" im HUD sichtbar
+
+📊 HUD Fixes
+
+Herzen 170px vom rechten Rand — werden vom ✕/🔊-Button nicht mehr verdeckt
+Schild-Balken 160×14px (deutlich größer), Farbe wechselt: blau→orange→rot je nach HP
 Farben ändern: Rakete, Nase, Spielfigur, Monster, Magmamonster
 Bestenliste anzeigen, einzelne Einträge löschen, alles löschen
