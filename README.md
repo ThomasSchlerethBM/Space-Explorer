@@ -1,4 +1,4 @@
-# Prime-Empire
+# Space Explorer
 This is a very ambitious game request. Let me break down what's needed:
 
 Launch phase - Rocket on Earth, steerable with arrow keys, thrust with up arrow
