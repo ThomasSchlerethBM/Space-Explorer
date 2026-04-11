@@ -26,3 +26,40 @@ Setting up the stars array... Writing the launch scene... Finishing the rocket's
 Writing character rendering... Still drawing the character... Writing the boss monster visuals... Writing monster graphics... Writing the HUD display...
 Now I'm setting up the game over screen with variables for player name input and leaderboard submission, then rendering a semi-transparent overlay with stars in the background. The display shows either a victory message with a trophy if the level exceeds 100, or a standard game over message, both in large bold text centered on the screen.
 Rendering the score display and name input form... Writing the leaderboard display... Writing game state logic... I'm loading the leaderboard from local storage as a fallback, then setting up the Firebase configuration placeholder for users to fill in their own credentials. Now I'm realizing the code structure needs some work—let me rewrite this as a complete, properly organized file that actually functions well.
+
+Das neue Space Explorer ist fertig. Hier eine Übersicht aller Neuerungen:
+
+🌋 Magmaplanet & Monsterburg
+
+Neuer 4. Planet im Weltraum, mit orangefarbener Lava-Atmosphäre
+Monsterburg rechts, mit Türmen, Zinnen, Burgfenstern und Schild
+Lavagraben links — blockiert den linken Eingang
+Zugbrücke: senkt sich automatisch, wenn Magmamonster sich annähern
+Sprungtreppe rechts: 7 stufenförmige Plattformen über die Burg zum rechten Eingang
+12 kleine Magmalöcher verteilt — mit Leertaste überspringen
+Weniger Gravitation (0.28) → man springt höher
+
+👿 Monsterboss (30 Leben)
+
+Eigene Boss-Szene (Burginneres) mit Fackeln, Kachelboden, Dunkelatmosphäre
+Boss-Sprite mit Krone, Schwert am Rücken, Kanone im Arm, glühende Augen
+10 Kanonenschüsse gleichzeitig in Fächerform, werden schneller in Phase 2+3
+Sieg: Explosion, Meldung, +30 Kronen, Rückflug zur Erde
+
+🛡 Schild-System
+
+Schild hält 100 Treffer, dann kaputt
+Glücksbaum (links jedes Planeten, goldene Früchte) — 10 Sekunden danebenstehen = Schild voll aufgeladen
+Schild-Balken oben rechts neben den Herzen
+
+🎵 Musik & UI
+
+Space-Theme beim Menü (Web Audio API, kein Download nötig)
+🔊/🔇-Knopf zum Stummschalten
+✕-Button auf jedem Spielbildschirm → zurück zum Menü
+Menü mit klickbaren Buttons: Spielen / Bestenliste / Admin
+
+⚙️ Admin-Bereich (PIN: 1234)
+
+Farben ändern: Rakete, Nase, Spielfigur, Monster, Magmamonster
+Bestenliste anzeigen, einzelne Einträge löschen, alles löschen
