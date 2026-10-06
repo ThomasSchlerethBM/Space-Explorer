@@ -204,6 +204,19 @@ input[type=color] { width:46px; height:30px; border:none; border-radius:6px; cur
             style="width:100%;margin-top:4px;background:#111;color:#fff;border:1px solid #4af;border-radius:4px;padding:4px 8px;font-family:monospace">
         </div>
       </div>
+      <div style="margin-top:14px;padding:10px;border:1px solid #234;border-radius:8px;background:rgba(0,80,160,0.08)">
+        <label style="color:#aaa;font-size:12px">🔍 Größe der Fragefenster &amp; Dialoge:
+          <b id="cfgPopupScaleVal" style="color:#4af">100 %</b></label>
+        <input id="cfgPopupScale" type="range" min="40" max="250" step="5" value="100"
+          oninput="setPopupScale(this.value)" style="width:100%;margin-top:6px">
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+          <button class="btn" style="font-size:11px;padding:3px 10px" onclick="setPopupScale(70);document.getElementById('cfgPopupScale').value=70">Klein 70 %</button>
+          <button class="btn" style="font-size:11px;padding:3px 10px" onclick="setPopupScale(100);document.getElementById('cfgPopupScale').value=100">Standard 100 %</button>
+          <button class="btn" style="font-size:11px;padding:3px 10px" onclick="setPopupScale(140);document.getElementById('cfgPopupScale').value=140">Groß 140 %</button>
+          <button class="btn" style="font-size:11px;padding:3px 10px" onclick="setPopupScale(200);document.getElementById('cfgPopupScale').value=200">Riesig 200 %</button>
+        </div>
+        <p style="color:#666;font-size:11px;margin-top:6px">100 % = automatisch an den Bildschirm angepasst. Gilt für Diamantbaum-Fragen, Rubin-/Wasserbomben-Tor, Klassenarbeit und Ja/Nein-Dialoge. Das Fenster wird nie größer als der Bildschirm. Wird auf diesem Gerät gespeichert.</p>
+      </div>
       <p style="color:#666;font-size:11px;margin-top:10px">Änderungen gelten sofort im laufenden Spiel.</p>
     </div>
 
@@ -2861,6 +2874,7 @@ function updateBoard(){
 // ═══════════════════════════════════════════════════════════════════
 function render(){
   frame++;
+  activePopupView=null;
   ctx.clearRect(0,0,W,H);
   switch(gs){
     case S.MENU:        renderMenu();        break;
@@ -3415,31 +3429,41 @@ function drawChest(wx, gy, opened){
 }
 
 // ─── IN-GAME DIALOG BOX ──────────────────────────────────────────
+function getDialogLayout(){
+  let k=Math.max(1, Math.min(W/700, H/560, 2)) * POPUP_SCALE/100;
+  const lines=dialog?dialog.msg.split('\n'):[''];
+  let dw=400*k; if(dw>W-20){ k*=(W-20)/dw; dw=W-20; }
+  const dh=(40+lines.length*24+66)*k;
+  const dx=W/2-dw/2, dy=Math.max(10,H/2-dh/2+40*k);
+  const by=dy+dh-54*k, bw=160*k, bh=40*k;
+  return {k,dw,dh,dx,dy,lines,
+    yes:{x:dx+20*k, y:by, w:bw, h:bh},
+    no: {x:dx+dw-20*k-bw, y:by, w:bw, h:bh}};
+}
+function handleDialogTap(cx,cy){
+  if(!dialog) return false;
+  const L=getDialogLayout(), inB=b=>cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h;
+  if(dialog.yLabel && inB(L.yes)){ const f=dialog.onY; f&&f(); return true; }
+  if(dialog.nLabel && dialog.onN && inB(L.no)){ const f=dialog.onN; f&&f(); return true; }
+  return false;
+}
 function renderDialog(){
   if(!dialog) return;
-  const dw=400, dh=140, dx=W/2-dw/2, dy=H/2-dh/2+40;
-  ctx.fillStyle='rgba(0,0,20,0.88)';
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,14); ctx.fill();
-  ctx.strokeStyle='#4af'; ctx.lineWidth=2;
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,14); ctx.stroke();
-  // Message (support newline)
-  ctx.fillStyle='#fff'; ctx.font='bold 16px Courier New'; ctx.textAlign='center';
-  const lines=dialog.msg.split('\n');
-  lines.forEach((l,i)=> ctx.fillText(l, W/2, dy+32+i*24));
-  // Buttons
-  const btnY=dy+dh-50;
-  if(dialog.yLabel){
-    ctx.fillStyle='rgba(30,120,30,0.9)'; ctx.beginPath(); ctx.roundRect(dx+20,btnY,160,38,8); ctx.fill();
-    ctx.strokeStyle='#8f8'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.roundRect(dx+20,btnY,160,38,8); ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.font='bold 15px Courier New'; ctx.textAlign='center';
-    ctx.fillText(dialog.yLabel, dx+100, btnY+25);
-  }
-  if(dialog.nLabel){
-    ctx.fillStyle='rgba(120,30,30,0.9)'; ctx.beginPath(); ctx.roundRect(dx+dw-180,btnY,160,38,8); ctx.fill();
-    ctx.strokeStyle='#f88'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.roundRect(dx+dw-180,btnY,160,38,8); ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.font='bold 15px Courier New'; ctx.textAlign='center';
-    ctx.fillText(dialog.nLabel, dx+dw-100, btnY+25);
-  }
+  const L=getDialogLayout(), k=L.k;
+  ctx.fillStyle='rgba(0,0,20,0.9)';
+  ctx.beginPath(); ctx.roundRect(L.dx,L.dy,L.dw,L.dh,14*k); ctx.fill();
+  ctx.strokeStyle='#4af'; ctx.lineWidth=2*k;
+  ctx.beginPath(); ctx.roundRect(L.dx,L.dy,L.dw,L.dh,14*k); ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(16*k)}px Courier New`; ctx.textAlign='center';
+  L.lines.forEach((l,i)=> ctx.fillText(l, W/2, L.dy+32*k+i*24*k));
+  const btn=(b,label,fill,stroke)=>{
+    ctx.fillStyle=fill; ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,8*k); ctx.fill();
+    ctx.strokeStyle=stroke; ctx.lineWidth=1.5*k; ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,8*k); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(15*k)}px Courier New`; ctx.textAlign='center';
+    ctx.fillText(label, b.x+b.w/2, b.y+b.h*0.65);
+  };
+  if(dialog.yLabel) btn(L.yes, dialog.yLabel, 'rgba(30,120,30,0.9)', '#8f8');
+  if(dialog.nLabel) btn(L.no,  dialog.nLabel, 'rgba(120,30,30,0.9)', '#f88');
 }
 
 
@@ -4158,77 +4182,7 @@ function drawDiamondTree(tree, gy){
 
 // ─── RENDER QUEST OVERLAY ────────────────────────────────────────
 function renderQuestOverlay(){
-  if(!questState) return;
-  const q=questState.quest;
-  const dw=500, dh=q.type==='mc'?300:240, dx=W/2-dw/2, dy=H/2-dh/2;
-
-  ctx.fillStyle='rgba(0,4,20,0.92)';
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.fill();
-  ctx.strokeStyle='#00cfff'; ctx.lineWidth=2.5;
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.stroke();
-
-  ctx.textAlign='center';
-  ctx.fillStyle='#00cfff'; ctx.font='bold 13px Courier New';
-  const sNum=questState.current+1, sTotal=questState.questions.length;
-  ctx.fillText(`💎 ${questState.tree.subject}  |  Aufgabe ${sNum}/${sTotal}  |  +5 💎 pro Richtig`,W/2,dy+22);
-  // Progress dots
-  for(let i=0;i<sTotal;i++){
-    const dot_x=W/2+(i-(sTotal-1)/2)*22;
-    ctx.fillStyle=i<questState.current?'#8f8':i===questState.current?'#fff':'#334';
-    ctx.beginPath(); ctx.arc(dot_x,dy+36,5,0,Math.PI*2); ctx.fill();
-  }
-
-  // Question (support newline)
-  ctx.fillStyle='#fff'; ctx.font='bold 20px Courier New';
-  q.q.split('\n').forEach((l,li)=> ctx.fillText(l,W/2,dy+52+li*26));
-
-  const questionLines = q.q.split('\n').length;
-  const baseY = dy+52+questionLines*26+8;
-
-  if(questState.phase==='result'){
-    ctx.fillStyle=questState.resultCorrect?'#8f8':'#f88';
-    ctx.font='bold 22px Courier New';
-    ctx.fillText(questState.resultCorrect?'✓ RICHTIG! +5 💎':'✗ Falsch!',W/2,baseY+20);
-    if(!questState.resultCorrect){
-      ctx.fillStyle='#aaa'; ctx.font='14px Courier New';
-      ctx.fillText('Tipp: '+q.hint,W/2,baseY+46);
-    }
-    ctx.fillStyle='rgba(0,207,255,0.7)'; ctx.font='14px Courier New';
-    const isLast=questState.current>=questState.questions.length-1;
-    ctx.fillText(isLast?'ENTER: Fertig':'ENTER: Nächste Frage →',W/2,dy+dh-16);
-    ctx.fillStyle='rgba(150,150,150,0.6)'; ctx.font='12px Courier New';
-    ctx.fillText('ESC: Abbrechen',W/2,dy+dh-2);
-    return;
-  }
-
-  if(q.type==='mc'){
-    q.choices.forEach((ch,i)=>{
-      const sel=questState.selectedMC===i;
-      const cy=baseY+i*52;
-      ctx.fillStyle=sel?'rgba(0,100,200,0.7)':'rgba(20,30,60,0.5)';
-      ctx.strokeStyle=sel?'#00cfff':'#334';
-      ctx.lineWidth=sel?2:1;
-      ctx.beginPath(); ctx.roundRect(dx+20,cy,dw-40,40,8); ctx.fill(); ctx.stroke();
-      ctx.fillStyle=sel?'#fff':'#aac';
-      ctx.font=(sel?'bold ':'')+`16px Courier New`; ctx.textAlign='center';
-      ctx.fillText(`${i+1}. ${ch}`,W/2,cy+26);
-    });
-    ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.font='12px Courier New'; ctx.textAlign='center';
-    ctx.fillText('1/2/3 wählen  →  ENTER bestätigen',W/2,dy+dh-14);
-  } else {
-    // Open answer input
-    const iw=200, ix=W/2-iw/2, iy=baseY;
-    ctx.fillStyle='rgba(255,255,255,0.08)'; ctx.strokeStyle='#00cfff'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.roundRect(ix,iy,iw,44,8); ctx.fill(); ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.font='bold 28px Courier New'; ctx.textAlign='center';
-    ctx.fillText(questState.input||(Math.floor(frame/20)%2===0?'|':''),W/2,iy+32);
-    ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.font='12px Courier New';
-    ctx.fillText('Ziffern tippen → ENTER bestätigen',W/2,dy+dh-14);
-    if(questState.attempts>0){
-      ctx.fillStyle='#fa0'; ctx.font='12px Courier New';
-      ctx.fillText('Noch 1 Versuch!',W/2,iy+54);
-    }
-  }
+  const v=questView(); if(v) drawPopup(v);
 }
 
 // ─── DIAMOND HUD DISPLAY ─────────────────────────────────────────
@@ -4555,7 +4509,7 @@ function renderFinalExam(){
     ctx.fillText(pass?'Weiter zum Gold-Endgegner...':'Nochmal versuchen? (ENTER)',W/2,H/2+50);
     if(!pass){
       ctx.fillStyle='rgba(255,200,0,0.6)'; ctx.font='14px Courier New';
-      ctx.fillText('ENTER: Prüfung wiederholen',W/2,H-30);
+      ctx.fillText('ENTER oder Tippen: Prüfung wiederholen',W/2,H-30);
       if(justDown['Enter']){finalExam=null; gs=S.SURFACE; startFinalExam();}
     }
     return;
@@ -4574,49 +4528,8 @@ function renderFinalExam(){
   ctx.fillStyle='#aaa'; ctx.font='13px Courier New'; ctx.textAlign='left';
   ctx.fillText(`Aufgabe ${finalExam.current+1}/${finalExam.questions.length}`,W/2-200,80);
 
-  // Current question
-  const q=finalExam.questions[finalExam.current];
-  const dw=520, dh=q.type==='mc'?280:220, dx=W/2-dw/2, dy=100;
-  ctx.fillStyle='rgba(10,8,0,0.9)'; ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,14); ctx.fill();
-  ctx.strokeStyle='#ffd700'; ctx.lineWidth=2; ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,14); ctx.stroke();
-
-  ctx.fillStyle='#ffd700'; ctx.font='12px Courier New'; ctx.textAlign='left';
-  ctx.fillText(q.subject,dx+14,dy+20);
-  ctx.fillStyle='#fff'; ctx.font='bold 20px Courier New'; ctx.textAlign='center';
-  q.q.split('\n').forEach((l,i)=>ctx.fillText(l,W/2,dy+48+i*26));
-  const qLines=q.q.split('\n').length;
-  const qBaseY=dy+48+qLines*26+10;
-
-  if(q.type==='mc'){
-    q.choices.forEach((ch,i)=>{
-      const sel=finalExam.answers[finalExam.current]===i;
-      const cy=qBaseY+i*52;
-      ctx.fillStyle=sel?'rgba(100,80,0,0.7)':'rgba(30,20,0,0.5)';
-      ctx.strokeStyle=sel?'#ffd700':'#554';
-      ctx.lineWidth=sel?2:1;
-      ctx.beginPath(); ctx.roundRect(dx+16,cy,dw-32,42,8); ctx.fill(); ctx.stroke();
-      ctx.fillStyle=sel?'#fff':'#cca'; ctx.font=(sel?'bold ':'')+`15px Courier New`;
-      ctx.textAlign='center';
-      ctx.fillText(`${i+1}. ${ch}`,W/2,cy+27);
-    });
-    ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.font='12px Courier New'; ctx.textAlign='center';
-    ctx.fillText('1/2/3 wählen → ENTER nächste Aufgabe | TAB überspringen',W/2,dy+dh-10);
-  } else {
-    const iw=180,ix=W/2-iw/2,iy=qBaseY;
-    ctx.fillStyle='rgba(255,255,255,0.08)'; ctx.strokeStyle='#ffd700'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.roundRect(ix,iy,iw,44,8); ctx.fill(); ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.font='bold 26px Courier New'; ctx.textAlign='center';
-    const cur=Math.floor(frame/20)%2===0?'|':'';
-    ctx.fillText((finalExam.input||'')||cur,W/2,iy+32);
-    ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.font='12px Courier New';
-    ctx.fillText('Ziffern tippen → ENTER bestätigen | TAB überspringen',W/2,dy+dh-10);
-  }
-
-  // Mini progress dots
-  finalExam.questions.forEach((_,i)=>{
-    const col=finalExam.answers[i]!==null?'#ffd700':i===finalExam.current?'#fff':'#444';
-    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(W/2-finalExam.questions.length*14+i*28,H-25,7,0,Math.PI*2); ctx.fill();
-  });
+  // Current question – big, touch-friendly popup
+  const v=examView(); if(v) drawPopup(v);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -5055,7 +4968,11 @@ function advanceRubyGate(){
   }
 }
 
-function renderRubyGate(){ drawGatePanel(rubyGateState, 'ruby'); }
+function renderRubyGate(){
+  const v=gateView('ruby');
+  if(v) drawPopup(v); else { ctx.fillStyle='#200010'; ctx.fillRect(0,0,W,H); drawStars(0.4); }
+  if(dialog) renderDialog();
+}
 
 // ═══════════════════════════════════════════════════════════════════
 //  RUBY WORLD SETUP
@@ -5579,7 +5496,12 @@ function advanceSplashGate(){
   }
 }
 
-function renderSplashGate(){ drawGatePanel(splashGateState, 'splash'); if(dialog) renderDialog(); }
+function renderSplashGate(){
+  const v=gateView('splash');
+  if(v) drawPopup(v);
+  else { const bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#003040'); bg.addColorStop(1,'#0088bb'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H); drawStars(0.4); }
+  if(dialog) renderDialog();
+}
 function askSplashPlay(){
   clearAllKeys();
   gs = S.SPLASH_GATE; splashGateState = null;
@@ -5592,16 +5514,30 @@ function askSplashPlay(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  SHARED GATE UI (Rubin-Tor + Wasserbomben-Tor): big, touch-friendly
+//  SHARED QUESTION POPUP (Tore, Diamantbäume, Klassenarbeit)
+//  big, touch-friendly, size adjustable in the admin area
 // ═══════════════════════════════════════════════════════════════════
-const GATE_THEMES = {
+let POPUP_SCALE = 100;   // % – set in Admin → Einstellungen
+try { const v=+localStorage.getItem('se_popup_scale'); if(v>=40 && v<=250) POPUP_SCALE=v; } catch(e){}
+setTimeout(()=>{ const s=document.getElementById('cfgPopupScale'); if(s) s.value=POPUP_SCALE; setPopupScale(POPUP_SCALE); },0);
+function setPopupScale(v){
+  POPUP_SCALE=Math.max(40,Math.min(250,+v||100));
+  try{ localStorage.setItem('se_popup_scale', String(POPUP_SCALE)); }catch(e){}
+  const l=document.getElementById('cfgPopupScaleVal'); if(l) l.textContent=POPUP_SCALE+' %';
+}
+function popupBaseScale(){ return Math.min(W/680, H/560, 2.2) * POPUP_SCALE/100; }
+
+const POPUP_THEMES = {
   ruby:   { bg1:'#200010', bg2:'#500030', panel:'rgba(20,0,10,0.96)', border:'#ff2244', accent:'#ff6688',
-            selFill:'rgba(180,0,40,0.7)', unsel:'rgba(40,0,15,0.6)', unselBorder:'#661133', dim:'#cc8899',
-            icon:'🔴', title:'RUBINPLANET-TOR' },
+            selFill:'rgba(180,0,40,0.7)', unsel:'rgba(40,0,15,0.6)', unselBorder:'#661133', dim:'#cc8899' },
   splash: { bg1:'#003040', bg2:'#0088bb', panel:'rgba(0,20,40,0.96)', border:'#33ccff', accent:'#66ddff',
-            selFill:'rgba(0,120,200,0.7)', unsel:'rgba(0,35,60,0.6)', unselBorder:'#1d4d77', dim:'#9cc4e4',
-            icon:'💦', title:'WASSERBOMBEN-TOR' }
+            selFill:'rgba(0,120,200,0.7)', unsel:'rgba(0,35,60,0.6)', unselBorder:'#1d4d77', dim:'#9cc4e4' },
+  diamond:{ panel:'rgba(0,4,20,0.95)', border:'#00cfff', accent:'#00cfff',
+            selFill:'rgba(0,100,200,0.75)', unsel:'rgba(20,30,60,0.6)', unselBorder:'#2a3f66', dim:'#aac' },
+  gold:   { panel:'rgba(12,9,0,0.95)', border:'#ffd700', accent:'#ffd700',
+            selFill:'rgba(120,90,0,0.8)', unsel:'rgba(35,25,0,0.6)', unselBorder:'#665520', dim:'#ddc' }
 };
+let activePopupView = null;   // set by drawPopup each frame, used for taps
 
 function gateWrap(text, maxW, font){
   ctx.font=font;
@@ -5617,36 +5553,40 @@ function gateWrap(text, maxW, font){
   return out;
 }
 
-function gateLayoutHeight(st, q, k, dw){
+function popupHeight(v, k, dw){
   const pad=22*k;
-  let h=pad + 34*k + 26*k;                       // header + dots
-  if(st.phase==='wait'){
-    const lines=gateWrap(st.correctText, dw-60*k, `bold ${Math.round(34*k)}px Courier New`);
-    return h + lines.length*44*k + 40*k + 76*k + pad + 30*k;
+  let h=pad + 34*k + 26*k;
+  if(v.phase==='wait'){
+    const lines=gateWrap(v.feedback, dw-60*k, `bold ${Math.round(34*k)}px Courier New`);
+    const sub=v.subText?gateWrap(v.subText, dw-60*k, `${Math.round(20*k)}px Courier New`).length*28*k:0;
+    return h + lines.length*44*k + sub + 40*k + 76*k + pad + 30*k;
   }
-  const qLines=gateWrap(q.q, dw-50*k, `bold ${Math.round(32*k)}px Courier New`);
+  const qLines=gateWrap(v.q.q, dw-50*k, `bold ${Math.round(32*k)}px Courier New`);
   h += qLines.length*42*k + 20*k;
-  if(q.type==='mc') h += q.choices.length*(74*k+14*k) + 72*k;
+  if(v.q.type==='mc') h += v.q.choices.length*(74*k+14*k) + 72*k;
   else h += 78*k + 16*k + 3*(66*k+10*k);
+  if(v.note) h += 30*k;
   return h + 34*k + pad;
 }
 
-function drawGatePanel(st, themeKey){
-  const T=GATE_THEMES[themeKey];
-  const bg=ctx.createLinearGradient(0,0,0,H);
-  bg.addColorStop(0,T.bg1); bg.addColorStop(1,T.bg2);
-  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-  drawStars(0.4);
-  if(!st) return;
-  const q=st.questions[st.current];
-  st._hits=[];
+function drawPopup(v){
+  const T=POPUP_THEMES[v.theme];
+  if(v.drawBg){
+    const bg=ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,T.bg1); bg.addColorStop(1,T.bg2);
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    drawStars(0.4);
+  } else if(v.dim){
+    ctx.fillStyle='rgba(0,0,10,0.55)'; ctx.fillRect(0,0,W,H);
+  }
+  v._hits=[]; activePopupView=v;
+  const top=v.topMargin||8, bottom=v.bottomMargin||8, availH=H-top-bottom;
 
-  // Scale: as big as the screen allows
-  let k=Math.min(W/680, H/560, 2.2);
+  let k=popupBaseScale();
   let dw=Math.min(W-24, 760*k);
-  for(let n=0;n<12 && gateLayoutHeight(st,q,k,dw)>H-16;n++){ k*=0.9; dw=Math.min(W-24,760*k); }
-  const dh=gateLayoutHeight(st,q,k,dw);
-  const dx=W/2-dw/2, dy=Math.max(8,H/2-dh/2);
+  for(let n=0;n<14 && popupHeight(v,k,dw)>availH;n++){ k*=0.9; dw=Math.min(W-24,760*k); }
+  const dh=popupHeight(v,k,dw);
+  const dx=W/2-dw/2, dy=Math.max(top, top+availH/2-dh/2);
   const pad=22*k;
 
   ctx.fillStyle=T.panel;
@@ -5658,146 +5598,215 @@ function drawGatePanel(st, themeKey){
   let y=dy+pad+20*k;
   ctx.textAlign='center'; ctx.fillStyle=T.accent;
   ctx.font=`bold ${Math.round(20*k)}px Courier New`;
-  ctx.fillText(`${T.icon} ${T.title}  |  Frage ${st.current+1}/${st.questions.length}  |  ${q.subject||''}`, W/2, y);
-  // Abort (X) button
-  const xb={x:dx+dw-52*k, y:dy+10*k, w:42*k, h:42*k};
-  ctx.fillStyle='rgba(150,40,40,0.8)';
-  ctx.beginPath(); ctx.roundRect(xb.x,xb.y,xb.w,xb.h,10*k); ctx.fill();
-  ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(24*k)}px Arial`;
-  ctx.fillText('✕', xb.x+xb.w/2, xb.y+xb.h*0.72);
-  st._hits.push({type:'abort', ...xb});
-
-  // Progress dots
-  y+=26*k;
-  for(let i=0;i<st.questions.length;i++){
-    ctx.fillStyle = i<st.current ? T.accent : i===st.current ? '#fff' : '#334';
-    ctx.beginPath(); ctx.arc(W/2+(i-(st.questions.length-1)/2)*30*k, y, 8*k, 0, Math.PI*2); ctx.fill();
+  ctx.fillText(v.header, W/2, y);
+  if(!v.noAbort){
+    const xb={x:dx+dw-52*k, y:dy+10*k, w:42*k, h:42*k};
+    ctx.fillStyle='rgba(150,40,40,0.8)';
+    ctx.beginPath(); ctx.roundRect(xb.x,xb.y,xb.w,xb.h,10*k); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(24*k)}px Arial`;
+    ctx.fillText('✕', xb.x+xb.w/2, xb.y+xb.h*0.72);
+    v._hits.push({type:'abort', ...xb});
   }
+  // Dots
+  y+=26*k;
+  v.dots.forEach((col,i)=>{
+    ctx.fillStyle=col;
+    ctx.beginPath(); ctx.arc(W/2+(i-(v.dots.length-1)/2)*30*k, y, 8*k, 0, Math.PI*2); ctx.fill();
+  });
   y+=14*k;
 
-  // ── Feedback phase ──
-  if(st.phase==='wait'){
-    const ok=st.correctText.startsWith('✓');
+  if(v.phase==='wait'){
+    const ok=v.feedback.startsWith('✓');
     const font=`bold ${Math.round(34*k)}px Courier New`;
-    const lines=gateWrap(st.correctText, dw-60*k, font);
+    const lines=gateWrap(v.feedback, dw-60*k, font);
     ctx.font=font; ctx.fillStyle=ok?'#8f8':'#f99';
     y+=40*k;
     lines.forEach(l=>{ ctx.fillText(l, W/2, y); y+=44*k; });
-    const nb={x:W/2-150*k, y:y+6*k, w:300*k, h:64*k};
+    if(v.subText){
+      const sf=`${Math.round(20*k)}px Courier New`;
+      ctx.font=sf; ctx.fillStyle='#ccc';
+      gateWrap(v.subText, dw-60*k, sf).forEach(l=>{ ctx.fillText(l, W/2, y); y+=28*k; });
+    }
+    const nb={x:W/2-170*k, y:y+6*k, w:340*k, h:64*k};
     ctx.fillStyle='rgba(0,140,60,0.9)';
     ctx.beginPath(); ctx.roundRect(nb.x,nb.y,nb.w,nb.h,14*k); ctx.fill();
     ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(26*k)}px Courier New`;
-    ctx.fillText('Weiter ▶', W/2, nb.y+nb.h*0.65);
-    st._hits.push({type:'next', x:dx, y:dy, w:dw, h:dh}); // tap anywhere continues
+    ctx.fillText(v.nextLabel||'Weiter ▶', W/2, nb.y+nb.h*0.65);
+    v._hits.push({type:'next', x:dx, y:dy, w:dw, h:dh});
     ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font=`${Math.round(16*k)}px Courier New`;
     ctx.fillText('Tippen oder ENTER', W/2, dy+dh-pad);
     return;
   }
 
-  // ── Question ──
+  const q=v.q;
   const qFont=`bold ${Math.round(32*k)}px Courier New`;
   const qLines=gateWrap(q.q, dw-50*k, qFont);
   ctx.font=qFont; ctx.fillStyle='#fff';
   y+=34*k;
   qLines.forEach(l=>{ ctx.fillText(l, W/2, y); y+=42*k; });
   y+=4*k;
+  if(v.note){
+    ctx.fillStyle='#fa0'; ctx.font=`bold ${Math.round(20*k)}px Courier New`;
+    ctx.fillText(v.note, W/2, y+14*k); y+=30*k;
+  }
 
   if(q.type==='mc'){
     q.choices.forEach((ch,i)=>{
-      const sel=st.selectedMC===i;
+      const sel=v.selectedMC===i;
       const b={x:dx+pad, y, w:dw-2*pad, h:74*k};
       ctx.fillStyle=sel?T.selFill:T.unsel;
       ctx.strokeStyle=sel?T.accent:T.unselBorder; ctx.lineWidth=(sel?3:1.5)*k;
       ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,14*k); ctx.fill(); ctx.stroke();
-      // number badge
       ctx.fillStyle=sel?'#fff':T.accent;
       ctx.beginPath(); ctx.arc(b.x+38*k, b.y+b.h/2, 22*k, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle=sel?'#000':T.panel.replace('0.96','1'); ctx.font=`bold ${Math.round(24*k)}px Courier New`;
+      ctx.fillStyle='#000'; ctx.font=`bold ${Math.round(24*k)}px Courier New`;
       ctx.textAlign='center'; ctx.fillText(String(i+1), b.x+38*k, b.y+b.h/2+8*k);
-      // text
       const cFont=`${sel?'bold ':''}${Math.round(28*k)}px Courier New`;
       const cl=gateWrap(ch, b.w-110*k, cFont);
       ctx.font=cl.length>1?`${sel?'bold ':''}${Math.round(22*k)}px Courier New`:cFont;
       ctx.fillStyle=sel?'#fff':T.dim;
       const lh=cl.length>1?24*k:0;
       cl.slice(0,2).forEach((l,li)=>ctx.fillText(l, b.x+b.w/2+20*k, b.y+b.h/2+10*k-lh/2+li*lh));
-      st._hits.push({type:'choice', i, ...b});
+      v._hits.push({type:'choice', i, ...b});
       y+=74*k+14*k;
     });
-    // Confirm button
-    const can=st.selectedMC>=0;
+    const can=v.selectedMC>=0;
     const cb={x:W/2-170*k, y:y+2*k, w:340*k, h:60*k};
     ctx.fillStyle=can?'rgba(0,150,60,0.95)':'rgba(70,70,70,0.6)';
     ctx.beginPath(); ctx.roundRect(cb.x,cb.y,cb.w,cb.h,14*k); ctx.fill();
     ctx.fillStyle=can?'#fff':'#aaa'; ctx.font=`bold ${Math.round(26*k)}px Courier New`;
-    ctx.textAlign='center'; ctx.fillText('✓ Antworten', W/2, cb.y+cb.h*0.66);
-    if(can) st._hits.push({type:'confirm', ...cb});
+    ctx.textAlign='center'; ctx.fillText(v.confirmLabel||'✓ Antworten', W/2, cb.y+cb.h*0.66);
+    if(can) v._hits.push({type:'confirm', ...cb});
     ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font=`${Math.round(15*k)}px Courier New`;
-    ctx.fillText('Antwort antippen  oder  1/2/3 + ENTER  |  ESC: Abbrechen', W/2, dy+dh-pad+4*k);
+    ctx.fillText(v.footer||'Antwort antippen  oder  1/2/3 + ENTER', W/2, dy+dh-pad+4*k);
   } else {
-    // Input box
     const ib={x:W/2-150*k, y, w:300*k, h:72*k};
     ctx.fillStyle='rgba(255,255,255,0.1)'; ctx.strokeStyle=T.accent; ctx.lineWidth=3*k;
     ctx.beginPath(); ctx.roundRect(ib.x,ib.y,ib.w,ib.h,14*k); ctx.fill(); ctx.stroke();
     ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(44*k)}px Courier New`; ctx.textAlign='center';
-    ctx.fillText(st.input || (Math.floor(frame/20)%2===0?'|':''), W/2, ib.y+ib.h*0.7);
+    ctx.fillText(v.input || (Math.floor(frame/20)%2===0?'|':''), W/2, ib.y+ib.h*0.7);
     y+=78*k+16*k;
-    // On-screen number pad
     const rows=[['1','2','3','4','5'],['6','7','8','9','0'],['del','ok']];
     const bw=66*k, gap=10*k;
-    rows.forEach((row,ri)=>{
+    rows.forEach(row=>{
       const widths=row.map(n=>n==='ok'?bw*3+gap*2:n==='del'?bw*2+gap:bw);
       const total=widths.reduce((a,b)=>a+b,0)+gap*(row.length-1);
       let x=W/2-total/2;
       row.forEach((n,ci)=>{
         const b={x, y, w:widths[ci], h:66*k};
         const isOk=n==='ok', isDel=n==='del';
-        const okEnabled=isOk && st.input.length>0;
+        const okEnabled=isOk && v.input.length>0;
         ctx.fillStyle=isOk?(okEnabled?'rgba(0,150,60,0.95)':'rgba(70,70,70,0.6)'):isDel?'rgba(150,60,40,0.85)':T.unsel;
         ctx.strokeStyle=isOk||isDel?'transparent':T.accent; ctx.lineWidth=1.5*k;
         ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,12*k); ctx.fill(); ctx.stroke();
         ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round((isOk||isDel?26:32)*k)}px Courier New`;
         ctx.fillText(isOk?'✓ OK':isDel?'⌫ Löschen':n, b.x+b.w/2, b.y+b.h*0.66);
-        if(!isOk || okEnabled) st._hits.push({type:isOk?'ok':isDel?'del':'digit', n, ...b});
+        if(!isOk || okEnabled) v._hits.push({type:isOk?'ok':isDel?'del':'digit', n, ...b});
         x+=widths[ci]+gap;
       });
       y+=66*k+10*k;
     });
     ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font=`${Math.round(15*k)}px Courier New`;
-    ctx.fillText('Zahlen antippen  oder  Tastatur + ENTER  |  ESC: Abbrechen', W/2, dy+dh-pad+4*k);
+    ctx.fillText(v.footerNum||'Zahlen antippen  oder  Tastatur + ENTER', W/2, dy+dh-pad+4*k);
   }
 }
 
-// Tap/click handling for both gates (canvas coordinates)
-function handleGateTap(cx, cy){
-  let st, check, advance, abort;
-  if(gs===S.RUBY_GATE && rubyGateState){
-    st=rubyGateState; check=checkRubyAnswer; advance=advanceRubyGate;
-    abort=()=>{ rubyGateState=null; enterSpace('ruby'); };
-  } else if(gs===S.SPLASH_GATE && splashGateState){
-    st=splashGateState; check=checkSplashAnswer; advance=advanceSplashGate;
-    abort=()=>{ splashGateState=null; enterSpace('splash'); };
-  } else return false;
-  const hits=st._hits||[];
-  // Check specific buttons first (abort), then rest
+function handlePopupTap(cx, cy){
+  // Klassenarbeit nicht bestanden → Tippen = nochmal
+  if(gs===S.FINAL_EXAM && finalExam && finalExam.done){
+    if(!finalExam.passed){ finalExam=null; gs=S.SURFACE; startFinalExam(); }
+    return true;
+  }
+  const v=activePopupView;
+  if(!v) return false;
+  const hits=v._hits||[];
   const order=[...hits.filter(h=>h.type==='abort'), ...hits.filter(h=>h.type!=='abort')];
   const h=order.find(b=>cx>=b.x && cx<=b.x+b.w && cy>=b.y && cy<=b.y+b.h);
-  if(!h) return true;
-  const q=st.questions[st.current];
+  if(!h) return true;   // popup open: swallow taps outside buttons
   switch(h.type){
-    case 'abort':  abort(); break;
-    case 'next':   advance(); break;
+    case 'abort':  v.onAbort && v.onAbort(); break;
+    case 'next':   v.onNext(); break;
     case 'choice':
-      if(st.selectedMC===h.i) check(h.i===q.a, q);   // second tap on same answer confirms
-      else { st.selectedMC=h.i; playFX(520,0.05,'sine',0.1); }
+      if(v.selectedMC===h.i) v.onConfirm(h.i);
+      else { v.onSelect(h.i); playFX(520,0.05,'sine',0.1); }
       break;
-    case 'confirm': if(st.selectedMC>=0) check(st.selectedMC===q.a, q); break;
-    case 'digit':  if(st.input.length<6){ st.input+=h.n; playFX(600,0.03,'sine',0.08); } break;
-    case 'del':    st.input=st.input.slice(0,-1); break;
-    case 'ok':     if(st.input) check(st.input.trim()===q.a.toString(), q); break;
+    case 'confirm': if(v.selectedMC>=0) v.onConfirm(v.selectedMC); break;
+    case 'digit':  if(v.input.length<6){ v.onInput(v.input+h.n); playFX(600,0.03,'sine',0.08); } break;
+    case 'del':    v.onInput(v.input.slice(0,-1)); break;
+    case 'ok':     if(v.input) v.onOk(v.input); break;
   }
+  activePopupView=null;   // re-created on next frame
   return true;
 }
+
+// ── View builders ────────────────────────────────────────────────
+function gateView(kind){
+  const st = kind==='ruby' ? rubyGateState : splashGateState;
+  if(!st) return null;
+  const q=st.questions[st.current];
+  const check = kind==='ruby' ? checkRubyAnswer : checkSplashAnswer;
+  return {
+    theme:kind, drawBg:true,
+    header:`${kind==='ruby'?'🔴 RUBINPLANET-TOR':'💦 WASSERBOMBEN-TOR'}  |  Frage ${st.current+1}/${st.questions.length}  |  ${q.subject||''}`,
+    dots:st.questions.map((_,i)=>i<st.current?POPUP_THEMES[kind].accent:i===st.current?'#fff':'#334'),
+    q, phase:st.phase==='wait'?'wait':'ask', feedback:st.correctText,
+    selectedMC:st.selectedMC, input:st.input,
+    footer:'Antwort antippen  oder  1/2/3 + ENTER  |  ESC: Abbrechen',
+    footerNum:'Zahlen antippen  oder  Tastatur + ENTER  |  ESC: Abbrechen',
+    onSelect:i=>{ st.selectedMC=i; },
+    onConfirm:i=>check(i===q.a, q),
+    onInput:s=>{ st.input=s; },
+    onOk:s=>check(s.trim()===q.a.toString(), q),
+    onNext:()=>{ kind==='ruby'?advanceRubyGate():advanceSplashGate(); },
+    onAbort:()=>{ if(kind==='ruby'){ rubyGateState=null; enterSpace('ruby'); } else { splashGateState=null; enterSpace('splash'); } }
+  };
+}
+
+function questView(){
+  const qs=questState; if(!qs) return null;
+  const q=qs.quest, n=qs.questions.length, isLast=qs.current>=n-1;
+  return {
+    theme:'diamond', dim:true,
+    header:`💎 ${qs.tree.subject}  |  Aufgabe ${qs.current+1}/${n}  |  +5 💎 pro Richtig`,
+    dots:qs.questions.map((_,i)=>i<qs.current?'#8f8':i===qs.current?'#fff':'#334'),
+    q, phase:qs.phase==='result'?'wait':'ask',
+    feedback:qs.resultCorrect?'✓ RICHTIG! +5 💎':'✗ Falsch!',
+    subText:(!qs.resultCorrect && q.hint)?('Tipp: '+q.hint):'',
+    note:(qs.phase==='ask' && qs.attempts>0)?'Noch 1 Versuch!':'',
+    nextLabel:isLast?'Fertig ✓':'Nächste Frage ▶',
+    selectedMC:qs.selectedMC, input:qs.input,
+    footer:'Antwort antippen  oder  1/2/3 + ENTER  |  ESC: Abbrechen',
+    footerNum:'Zahlen antippen  oder  Tastatur + ENTER  |  ESC: Abbrechen',
+    onSelect:i=>{ qs.selectedMC=i; },
+    onConfirm:i=>handleQuestResult(i===q.a),
+    onInput:s=>{ qs.input=s.slice(0,5); },
+    onOk:s=>handleQuestResult(s.trim()===q.a.toString()),
+    onNext:()=>advanceQuestSession(),
+    onAbort:()=>{ questState=null; interactCooldown=20; }
+  };
+}
+
+function examView(){
+  const fe=finalExam; if(!fe||fe.done) return null;
+  const q=fe.questions[fe.current], n=fe.questions.length;
+  const next=()=>{ if(fe.current<n-1) fe.current++; else finishFinalExam(); };
+  const a=fe.answers[fe.current];
+  return {
+    theme:'gold', drawBg:false, noAbort:true, topMargin:90, bottomMargin:44,
+    header:`📝 ${q.subject||''}  |  Aufgabe ${fe.current+1}/${n}`,
+    dots:fe.questions.map((_,i)=>fe.answers[i]!==null?'#ffd700':i===fe.current?'#fff':'#444'),
+    q, phase:'ask', selectedMC:(q.type==='mc' && a!==null && a!==undefined)?a:-1, input:fe.input||'',
+    confirmLabel:'Weiter ▶',
+    footer:'Antwort antippen  oder  1/2/3 + ENTER  |  TAB überspringen',
+    footerNum:'Zahlen antippen  oder  Tastatur + ENTER  |  TAB überspringen',
+    onSelect:i=>{ fe.answers[fe.current]=i; },
+    onConfirm:i=>{ fe.answers[fe.current]=i; next(); },
+    onInput:s=>{ fe.input=s.slice(0,5); },
+    onOk:s=>{ fe.answers[fe.current]=s; fe.input=''; next(); },
+    onNext:()=>{}
+  };
+}
+
 
 
 function wrapText(text, maxW){
@@ -7449,11 +7458,10 @@ canvas.addEventListener('wheel', e=>{
 },{passive:false});
 canvas.addEventListener('click', e=>{
   { const r=canvas.getBoundingClientRect(); if(handleMissileTap((e.clientX-r.left)*(W/r.width),(e.clientY-r.top)*(H/r.height))) return; }
-  if((gs===S.RUBY_GATE || gs===S.SPLASH_GATE) && !dialog){
-    const r=canvas.getBoundingClientRect();
-    handleGateTap((e.clientX-r.left)*(W/r.width), (e.clientY-r.top)*(H/r.height));
-    return;
-  }
+  { const r=canvas.getBoundingClientRect();
+    const cx=(e.clientX-r.left)*(W/r.width), cy=(e.clientY-r.top)*(H/r.height);
+    if(dialog && handleDialogTap(cx,cy)) return;
+    if(!dialog && handlePopupTap(cx,cy)) return; }
   // Load menu mouse clicks
   if(gs===S.LOADMENU){
     const saves=getAllSaves();
@@ -7521,14 +7529,7 @@ canvas.addEventListener('click', e=>{
       if(e.clientX>=dx+dw-210&&e.clientX<=dx+dw-30){ handleMathKey('KeyN','n'); return; }
     }
   }
-  // Dialog buttons on surface screen
-  if(dialog && (gs===S.SURFACE||gs===S.BOSS||gs===S.BOSSWIN||gs===S.SPLASH_GAME||gs===S.SPLASH_GATE||gs===S.SPLASH_BOSS)){
-    const dw=400, dh=140, dx=W/2-dw/2, dy=H/2-dh/2+40;
-    if(e.clientY>=dy+dh-52&&e.clientY<=dy+dh-12){
-      if(e.clientX>=dx+20&&e.clientX<=dx+180){ dialog.onY&&dialog.onY(); return; }
-      if(dialog.onN&&e.clientX>=dx+dw-190&&e.clientX<=dx+dw-20){ dialog.onN(); return; }
-    }
-  }
+
 });
 
 canvas.addEventListener('mousemove', e=>{
@@ -7593,14 +7594,7 @@ canvas.addEventListener('click', e=>{
       return;
     }
   }
-  // Dialog buttons (if dialog open during surface)
-  if(dialog && gs===S.SURFACE){
-    const dw=380, dh=130, dx=W/2-dw/2, dy=H/2-dh/2;
-    // Y button
-    if(e.clientX>=dx+20&&e.clientX<=dx+160&&e.clientY>=dy+dh-50&&e.clientY<=dy+dh-10) { dialog.onY&&dialog.onY(); return; }
-    // N button
-    if(dialog.onN&&e.clientX>=dx+dw-170&&e.clientX<=dx+dw-10&&e.clientY>=dy+dh-50&&e.clientY<=dy+dh-10) { dialog.onN(); return; }
-  }
+
 });
 
 // ─── LAUNCH ──────────────────────────────────────────────────────
@@ -8468,15 +8462,8 @@ function handleCanvasTap(e) {
       clientX: touch.clientX, clientY: touch.clientY, bubbles: true
     }));
   }
-  // Dialog J/N buttons
-  if (dialog) {
-    const dw=400,dh=140,dx=W/2-dw/2,dy=H/2-dh/2+40;
-    const btnY = dy+dh-50;
-    if (y >= btnY && y <= btnY+38) {
-      if (x >= dx+20 && x <= dx+180 && dialog.onY) { dialog.onY(); return; }
-      if (x >= dx+dw-180 && x <= dx+dw-20 && dialog.onN) { dialog.onN(); return; }
-    }
-  }
+
+  if (dialog && handleDialogTap(x, y)) return;
   // Kiosk item click
   if (kioskOpen) {
     canvas.dispatchEvent(new MouseEvent('click', {
@@ -8662,7 +8649,8 @@ function handleGameAreaTap(x, y) {
   // Eis-Lenkrakete button in boss fights
   if (handleMissileTap(cx, cy)) return;
   // Question gates (Rubin / Wasserbomben)
-  if ((gs === S.RUBY_GATE || gs === S.SPLASH_GATE) && !dialog) { handleGateTap(cx, cy); return; }
+  if (dialog && handleDialogTap(cx, cy)) return;
+  if (!dialog && handlePopupTap(cx, cy)) return;
 
   // Menu / board / save screens
   if (gs === S.MENU || gs === S.BOARD || gs === S.SAVEMENU || gs === S.LOADMENU) {
@@ -8674,16 +8662,7 @@ function handleGameAreaTap(x, y) {
   if (mathQuiz && mathQuiz.phase === 'input') return; // numpad handles it
 
   // Dialog J/N
-  if (dialog) {
-    const dw=400,dh=140,dx=W/2-dw/2,dy=H/2-dh/2+40;
-    const btnY=(dy+dh-50)*(rect.height/H)+rect.top;
-    const scale = rect.width/W;
-    if (y >= btnY && y <= btnY+38*scale) {
-      if (cx >= dx+20    && cx <= dx+180    && dialog.onY) { dialog.onY(); return; }
-      if (cx >= dx+dw-180&& cx <= dx+dw-20  && dialog.onN) { dialog.onN(); return; }
-    }
-    return;
-  }
+  if (dialog) { handleDialogTap(cx, cy); return; }
 
   // Kiosk overlay tap
   if (kioskOpen) {
