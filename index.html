@@ -660,13 +660,8 @@ window.addEventListener('keydown', e => {
   // Save / Load menu input
   if(gs===S.SAVEMENU){
     e.preventDefault();
-    if(e.code==='Escape'){ gs=S.MENU; return; }
-    if(e.code==='Enter' && saveMenuInput.trim()){
-      saveGame(saveMenuInput.trim());
-      saveMenuError='✅ Gespeichert: '+saveMenuInput.trim();
-      saveMenuInput='';
-      return;
-    }
+    if(e.code==='Escape'){ leaveSaveMenu(); return; }
+    if(e.code==='Enter'){ doSaveNow(); return; }
     if(e.code==='Backspace'){ saveMenuInput=saveMenuInput.slice(0,-1); return; }
     if(e.key.length===1 && saveMenuInput.length<16) saveMenuInput+=e.key;
     return;
@@ -1063,6 +1058,7 @@ function saveGame(slotName) {
     name:         slotName.trim() || 'Spielstand',
     date:         new Date().toLocaleString('de-DE'),
     level, lives, crowns, diamonds, rubies, splashStars, iceMissiles,
+    gameMode, sagaChapter, sagaUnlocked: {...sagaUnlocked},
     splashPlanetUnlocked,
     currentPlanet,
     weaponLevel, shieldLevel, rocketLevel,
@@ -1095,6 +1091,9 @@ function loadGame(entry) {
   diamonds              = entry.diamonds              ?? 0;
   rubies                = entry.rubies                ?? 0;
   iceMissiles           = entry.iceMissiles           ?? 0;
+  gameMode              = entry.gameMode              ?? 'arcade';
+  sagaChapter           = entry.sagaChapter           ?? 0;
+  sagaUnlocked          = entry.sagaUnlocked          ?? {0:true};
   splashStars           = entry.splashStars           ?? 0;
   splashPlanetUnlocked  = entry.splashPlanetUnlocked  ?? false;
   diamondWeaponLevel    = entry.diamondWeaponLevel    ?? 0;
@@ -1148,7 +1147,15 @@ function drawSaveScrollbar(x, y, h, first, visible, total){
 }
 let saveMenuError = '';
 
+let saveReturnGs = null;
+function saveDefaultName(){ const d=new Date(); return (gameMode==='saga'?'Saga ':'')+d.toLocaleDateString('de-DE')+' '+d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}); }
+function doSaveNow(){
+  const name=saveMenuInput.trim()||saveDefaultName();
+  saveGame(name); saveMenuError='✅ Gespeichert: '+name; saveMenuInput='';
+}
+function leaveSaveMenu(){ gs = saveReturnGs || S.MENU; saveReturnGs=null; clearAllKeys(); }
 function openSaveMenu() {
+  saveReturnGs = (gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) ? gs : null;
   saveMenuMode = 'save';
   saveMenuInput = '';
   saveMenuSelected = 0; saveMenuScroll = 0; saveListScroll = 0;
@@ -2308,6 +2315,8 @@ function handleMissileTap(cx,cy){
 //  UPDATE
 // ═══════════════════════════════════════════════════════════════════
 function update(){
+  // Speichern über Touch-Button (setzt justDown KeyP)
+  if(justDown['KeyP'] && (gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog){ openSaveMenu(); clearJust(); return; }
   if(isMissileState()){ if(justDown['KeyR']) fireIceMissile(); steerIceMissiles(); }
   switch(gs){
     case S.MENU:        updateMenu();        break;
@@ -4008,10 +4017,14 @@ function renderSaveMenuInner(){
     ctx.fillStyle='rgba(255,255,255,0.07)'; ctx.strokeStyle='#4af'; ctx.lineWidth=2;
     ctx.beginPath(); ctx.roundRect(ix,iy,iw,40,8); ctx.fill(); ctx.stroke();
     ctx.fillStyle='#fff'; ctx.font='bold 20px Courier New'; ctx.textAlign='center';
-    const displayName = saveMenuInput + (Math.floor(frame/20)%2===0?'|':'');
-    ctx.fillText(displayName || '|', W/2, iy+28);
+    if(saveMenuInput){
+      ctx.fillText(saveMenuInput + (Math.floor(frame/20)%2===0?'|':''), W/2, iy+28);
+    } else {
+      ctx.fillStyle='#667'; ctx.font='14px Courier New';
+      ctx.fillText('Name (optional) – sonst: '+saveDefaultName(), W/2, iy+26);
+    }
     // Save button
-    const canSave = saveMenuInput.trim().length>0;
+    const canSave = true;
     ctx.fillStyle=canSave?'rgba(0,120,0,0.8)':'rgba(60,60,60,0.5)';
     ctx.beginPath(); ctx.roundRect(W/2-100,PY+130,200,40,8); ctx.fill();
     ctx.strokeStyle=canSave?'#4f4':'#555'; ctx.lineWidth=1.5;
@@ -4083,9 +4096,10 @@ function renderSaveMenuInner(){
 
   // Back button
   ctx.fillStyle='rgba(120,30,30,0.7)';
-  ctx.beginPath(); ctx.roundRect(PX+20,PY+PH-40,120,30,8); ctx.fill();
+  const backW = (isSave && saveReturnGs) ? 180 : 120;
+  ctx.beginPath(); ctx.roundRect(PX+20,PY+PH-40,backW,30,8); ctx.fill();
   ctx.fillStyle='#f88'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
-  ctx.fillText('ESC Zurück', PX+80, PY+PH-18);
+  ctx.fillText((isSave && saveReturnGs)?'ESC: Weiterspielen':'ESC Zurück', PX+20+backW/2, PY+PH-18);
 
   // Delete hint (load mode)
   if(!isSave && saves.length>0){
@@ -7690,12 +7704,8 @@ canvas.addEventListener('click', e=>{
   // Save menu: click save button
   if(gs===S.SAVEMENU){
     const L=getSaveMenuLayout(); const PH=L.PH, PY=L.PY;
-    if(e.clientY>=PY+130&&e.clientY<=PY+170&&e.clientX>=W/2-100&&e.clientX<=W/2+100&&saveMenuInput.trim()){
-      saveGame(saveMenuInput.trim());
-      saveMenuError='✅ Gespeichert!';
-      saveMenuInput='';
-    }
-    if(e.clientY>=PY+PH-40&&e.clientX>=L.PX+20&&e.clientX<=L.PX+140) gs=S.MENU;
+    if(e.clientY>=PY+130&&e.clientY<=PY+170&&e.clientX>=W/2-100&&e.clientX<=W/2+100){ doSaveNow(); return; }
+    if(e.clientY>=PY+PH-40&&e.clientX>=L.PX+20&&e.clientX<=L.PX+200){ leaveSaveMenu(); return; }
     return;
   }
   // Kiosk mouse clicks (tabs + buy button)
@@ -8893,6 +8903,8 @@ function handleGameAreaTap(x, y) {
   const cx = (x - rect.left) * (W / rect.width);
   const cy = (y - rect.top)  * (H / rect.height);
 
+  // 💾 Save-Button oben links
+  if ((gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog && cx>=8 && cx<=108 && cy>=56 && cy<=86) { openSaveMenu(); return; }
   // Eis-Lenkrakete button in boss fights
   if (handleMissileTap(cx, cy)) return;
   // Question gates (Rubin / Wasserbomben)
