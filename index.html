@@ -556,8 +556,8 @@ window.addEventListener('keydown', e => {
   keys[e.code]=true;
 
   // Gate/overlay inputs have priority over generic dialog (prevent input lockout)
-  if(gs===S.RUBY_GATE){ e.preventDefault(); handleRubyGateKey(e.code, e.key); return; }
-  if(gs===S.SPLASH_GATE){ e.preventDefault(); handleSplashGateKey(e.code, e.key); return; }
+  if(gs===S.RUBY_GATE && !dialog){ e.preventDefault(); handleRubyGateKey(e.code, e.key); return; }
+  if(gs===S.SPLASH_GATE && !dialog){ e.preventDefault(); handleSplashGateKey(e.code, e.key); return; }
   if(gs===S.CUTSCENE){ e.preventDefault(); return; }
   if(gs===S.MODE_SELECT||gs===S.SAGA_NEW_LOAD){ e.preventDefault(); return; }
 
@@ -652,12 +652,18 @@ window.addEventListener('keydown', e => {
     e.preventDefault();
     const saves=getAllSaves();
     if(e.code==='Escape'){ gs=S.MENU; return; }
-    if(e.code==='ArrowUp'){ saveMenuSelected=Math.max(0,saveMenuSelected-1); return; }
-    if(e.code==='ArrowDown'){ saveMenuSelected=Math.min(saves.length-1,saveMenuSelected+1); return; }
+    const pageN=getSaveMenuLayout().visibleRows;
+    if(e.code==='ArrowUp'){ saveMenuSelected=Math.max(0,saveMenuSelected-1); clampSaveScroll(saves.length); return; }
+    if(e.code==='ArrowDown'){ saveMenuSelected=Math.min(saves.length-1,saveMenuSelected+1); clampSaveScroll(saves.length); return; }
+    if(e.code==='PageUp'){ saveMenuSelected=Math.max(0,saveMenuSelected-pageN); clampSaveScroll(saves.length); return; }
+    if(e.code==='PageDown'){ saveMenuSelected=Math.min(saves.length-1,saveMenuSelected+pageN); clampSaveScroll(saves.length); return; }
+    if(e.code==='Home'){ saveMenuSelected=0; clampSaveScroll(saves.length); return; }
+    if(e.code==='End'){ saveMenuSelected=Math.max(0,saves.length-1); clampSaveScroll(saves.length); return; }
     if(e.code==='Enter' && saves[saveMenuSelected]){ loadGame(saves[saveMenuSelected]); return; }
     if(e.code==='Delete' && saves[saveMenuSelected]){
       saves.splice(saveMenuSelected,1); writeSaves(saves);
-      saveMenuSelected=Math.max(0,saveMenuSelected-1);
+      saveMenuSelected=Math.max(0,Math.min(saveMenuSelected,saves.length-1));
+      clampSaveScroll(saves.length);
       return;
     }
     return;
@@ -709,6 +715,10 @@ let weaponLevel  = 0;  // 0=1 shot, 1=2 shots, 2=3 shots
 let shieldLevel  = 0;  // 0=front only, 1=both sides, 2=full circle
 let rocketLevel  = 0;  // 0=single, 1=double, 2=triple engine
 let kioskOpen    = false;
+let iceMissiles   = 0;        // Eis-Lenkraketen im Rucksack (max 20)
+const ICE_MISSILE_MAX = 20, ICE_MISSILE_COST = 10;
+const HEART_MAX = 20, HEART_COST = 10;
+let iceMissileCooldown = 0;
 let kioskTab     = 'weapon'; // 'weapon' | 'shield' | 'rocket'
 let interactCooldown = 0;  // prevents repeated triggering when key held
 
@@ -1014,7 +1024,7 @@ function mulberry32(seed){
 //  SPIELSTAND SPEICHERN / LADEN
 // ═══════════════════════════════════════════════════════════════════
 const SAVE_KEY = 'se_saves';
-const MAX_SAVES = 6;
+// Unbegrenzt viele Spielstände (nur durch localStorage-Größe begrenzt)
 
 function getAllSaves() {
   try { return JSON.parse(localStorage.getItem(SAVE_KEY) || '[]'); }
@@ -1029,7 +1039,7 @@ function saveGame(slotName) {
   const entry = {
     name:         slotName.trim() || 'Spielstand',
     date:         new Date().toLocaleString('de-DE'),
-    level, lives, crowns, diamonds, rubies, splashStars,
+    level, lives, crowns, diamonds, rubies, splashStars, iceMissiles,
     splashPlanetUnlocked,
     currentPlanet,
     weaponLevel, shieldLevel, rocketLevel,
@@ -1043,7 +1053,7 @@ function saveGame(slotName) {
   const idx = saves.findIndex(s => s.name === entry.name);
   if (idx >= 0) saves[idx] = entry;
   else saves.unshift(entry);
-  writeSaves(saves.slice(0, MAX_SAVES));
+  writeSaves(saves);
   playFX(880, 0.3, 'sine', 0.2);
 }
 
@@ -1061,6 +1071,7 @@ function loadGame(entry) {
   bossDefeated          = entry.bossDefeated          ?? false;
   diamonds              = entry.diamonds              ?? 0;
   rubies                = entry.rubies                ?? 0;
+  iceMissiles           = entry.iceMissiles           ?? 0;
   splashStars           = entry.splashStars           ?? 0;
   splashPlanetUnlocked  = entry.splashPlanetUnlocked  ?? false;
   diamondWeaponLevel    = entry.diamondWeaponLevel    ?? 0;
@@ -1082,18 +1093,46 @@ function loadGame(entry) {
 let saveMenuMode = 'save'; // 'save' | 'load'
 let saveMenuInput = '';
 let saveMenuSelected = 0;
+let saveMenuScroll = 0;   // first visible row in the load list
+let saveListScroll = 0;   // first visible row in the save-menu overview
+function getSaveMenuLayout(){
+  const PW=560, PH=Math.max(480, Math.min(H-40, 720));
+  const PX=W/2-PW/2, PY=H/2-PH/2;
+  const listTop=PY+84, rowH=60;
+  const visibleRows=Math.max(1, Math.floor((PH-84-56)/rowH));
+  const saveListTop=PY+216, saveRowH=38;
+  const saveVisibleRows=Math.max(1, Math.floor((PH-216-56)/saveRowH));
+  return {PW,PH,PX,PY,listTop,rowH,visibleRows,saveListTop,saveRowH,saveVisibleRows};
+}
+function clampSaveScroll(count){
+  const L=getSaveMenuLayout();
+  // keep selected row visible
+  if(saveMenuSelected<saveMenuScroll) saveMenuScroll=saveMenuSelected;
+  if(saveMenuSelected>=saveMenuScroll+L.visibleRows) saveMenuScroll=saveMenuSelected-L.visibleRows+1;
+  saveMenuScroll=Math.max(0, Math.min(saveMenuScroll, Math.max(0,count-L.visibleRows)));
+  saveListScroll=Math.max(0, Math.min(saveListScroll, Math.max(0,count-L.saveVisibleRows)));
+}
+function drawSaveScrollbar(x, y, h, first, visible, total){
+  if(total<=visible) return;
+  ctx.fillStyle='rgba(255,255,255,0.08)';
+  ctx.beginPath(); ctx.roundRect(x,y,6,h,3); ctx.fill();
+  const th=Math.max(24, h*visible/total);
+  const ty=y+(h-th)*(first/Math.max(1,total-visible));
+  ctx.fillStyle='#4af';
+  ctx.beginPath(); ctx.roundRect(x,ty,6,th,3); ctx.fill();
+}
 let saveMenuError = '';
 
 function openSaveMenu() {
   saveMenuMode = 'save';
   saveMenuInput = '';
-  saveMenuSelected = 0;
+  saveMenuSelected = 0; saveMenuScroll = 0; saveListScroll = 0;
   saveMenuError = '';
   gs = S.SAVEMENU;
 }
 function openLoadMenu() {
   saveMenuMode = 'load';
-  saveMenuSelected = 0;
+  saveMenuSelected = 0; saveMenuScroll = 0; saveListScroll = 0;
   saveMenuError = '';
   gs = S.LOADMENU;
 }
@@ -1102,7 +1141,7 @@ function openLoadMenu() {
 //  GAME SETUP
 // ═══════════════════════════════════════════════════════════════════
 function startGame(){
-  level=1; lives=3; crowns=0; diamonds=0; shieldHP=100; shieldBroken=false; shieldBlocked=0;
+  level=1; lives=3; crowns=0; diamonds=0; iceMissiles=0; shieldHP=100; shieldBroken=false; shieldBlocked=0;
   diamondWeaponLevel=0; diamondShieldLevel=0; diamondRocketLevel=0; subjectQuestsDone={};
   rubies=0;
   diamondPlanetBossUnlocked=false; goldPlanetUnlocked=false;
@@ -2007,10 +2046,109 @@ function startBossFight(){
   playFX(55, 1.5, 'sawtooth', 0.25);
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+//  EIS-LENKRAKETEN (in allen Bosskämpfen, Taste R oder Button)
+// ═══════════════════════════════════════════════════════════════════
+const MISSILE_STATES = () => [S.BOSS, S.DIAMOND_BOSS, S.GOLD_BOSS, S.RUBY_BOSS, S.SPLASH_BOSS];
+function isMissileState(){ return MISSILE_STATES().includes(gs); }
+
+function getMissileTarget(px, py){
+  const cands=[];
+  const add=(o)=>{ if(o && !o.dead) cands.push({x:o.x+o.w/2, y:o.y+o.h/2}); };
+  if(gs===S.BOSS) add(boss);
+  else if(gs===S.DIAMOND_BOSS) add(diamondBoss);
+  else if(gs===S.GOLD_BOSS) add(goldBossData);
+  else if(gs===S.RUBY_BOSS){
+    const eggs=rubyEggs.filter(e=>!e.dead);
+    if(eggs.length) eggs.forEach(add); else add(rubyBoss);
+  } else if(gs===S.SPLASH_BOSS){
+    const birds=splashBirds.filter(b=>!b.dead);
+    if(birds.length) birds.forEach(add); else add(splashBoss);
+  }
+  if(!cands.length) return null;
+  cands.sort((a,b)=>Math.hypot(a.x-px,a.y-py)-Math.hypot(b.x-px,b.y-py));
+  return cands[0];
+}
+
+function fireIceMissile(){
+  if(!isMissileState() || iceMissiles<=0 || iceMissileCooldown>0) return;
+  iceMissiles--; iceMissileCooldown=25;
+  const normal = (gs===S.BOSS) ? 1 : (1<<diamondWeaponLevel);
+  const dir = hero.facing||1;
+  pProjectiles.push({
+    x: hero.x+hero.w/2, y: hero.y,
+    vx: dir*3, vy: -7,                // launch upwards, then home in
+    life: 420, r: 10, power: normal*20, missile: true, trail: []
+  });
+  playFX(300,0.25,'sawtooth',0.18); setTimeout(()=>playFX(900,0.2,'sine',0.12),80);
+}
+
+function steerIceMissiles(){
+  if(iceMissileCooldown>0) iceMissileCooldown--;
+  for(const p of pProjectiles){
+    if(!p.missile) continue;
+    p.trail.push({x:p.x,y:p.y}); if(p.trail.length>14) p.trail.shift();
+    const t=getMissileTarget(p.x,p.y);
+    const speed=Math.min(11, Math.hypot(p.vx,p.vy)+0.35);
+    let ang=Math.atan2(p.vy,p.vx);
+    if(t){
+      const want=Math.atan2(t.y-p.y, t.x-p.x);
+      let d=want-ang; while(d>Math.PI) d-=2*Math.PI; while(d<-Math.PI) d+=2*Math.PI;
+      ang+=Math.max(-0.14,Math.min(0.14,d));
+    }
+    p.vx=Math.cos(ang)*speed; p.vy=Math.sin(ang)*speed;
+    p.life=Math.max(p.life,30);       // keep alive while homing
+    // keep inside the screen (some boss rooms delete off-screen shots)
+    p.x=Math.max(4,Math.min(W-4,p.x)); p.y=Math.max(4,Math.min(H-4,p.y));
+  }
+}
+
+function getMissileButton(){ return { x:W-190, y:H-150, w:170, h:52 }; }
+
+function drawIceMissiles(){
+  for(const p of pProjectiles){
+    if(!p.missile) continue;
+    // icy trail
+    p.trail.forEach((tp,i)=>{
+      ctx.fillStyle=`rgba(180,235,255,${i/p.trail.length*0.6})`;
+      ctx.beginPath(); ctx.arc(tp.x,tp.y,2+i*0.35,0,Math.PI*2); ctx.fill();
+    });
+    const ang=Math.atan2(p.vy,p.vx);
+    ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(ang);
+    ctx.fillStyle='#e8f8ff'; ctx.strokeStyle='#33aadd'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(16,0); ctx.lineTo(-10,-6); ctx.lineTo(-10,6); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#66ccff';
+    ctx.beginPath(); ctx.moveTo(-6,-6); ctx.lineTo(-14,-11); ctx.lineTo(-10,-3); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-6,6); ctx.lineTo(-14,11); ctx.lineTo(-10,3); ctx.fill();
+    ctx.fillStyle=`rgba(150,230,255,${0.6+Math.random()*0.4})`;
+    ctx.beginPath(); ctx.arc(-13,0,4+Math.random()*2,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+  // Fire button / counter
+  const b=getMissileButton();
+  const ready=iceMissiles>0 && iceMissileCooldown===0;
+  ctx.fillStyle=ready?'rgba(20,110,170,0.9)':'rgba(50,50,70,0.75)';
+  ctx.strokeStyle=ready?'#aef':'#556'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,12); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=ready?'#fff':'#99a'; ctx.textAlign='center';
+  ctx.font='bold 16px Courier New';
+  ctx.fillText(`❄️🚀 R  (${iceMissiles}/${ICE_MISSILE_MAX})`, b.x+b.w/2, b.y+22);
+  ctx.font='11px Courier New';
+  ctx.fillText(iceMissiles>0?'Eis-Lenkrakete':'Im Kiosk kaufen', b.x+b.w/2, b.y+40);
+}
+
+function handleMissileTap(cx,cy){
+  if(!isMissileState()) return false;
+  const b=getMissileButton();
+  if(cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h){ fireIceMissile(); return true; }
+  return false;
+}
 // ═══════════════════════════════════════════════════════════════════
 //  UPDATE
 // ═══════════════════════════════════════════════════════════════════
 function update(){
+  if(isMissileState()){ if(justDown['KeyR']) fireIceMissile(); steerIceMissiles(); }
   switch(gs){
     case S.MENU:        updateMenu();        break;
     case S.LAUNCH:      updateLaunch();      break;
@@ -2133,8 +2271,7 @@ function updateApproaching(){
     if(approachPlanet.id==='ruby'){
       startRubyGate();
     } else if(approachPlanet.id==='splash'){
-      if(!splashGatePassed){ startSplashGate(); }
-      else { startSplashGame(); }
+      askSplashPlay();
     } else {
       setupSurface(approachPlanet.id);
     }
@@ -2257,7 +2394,7 @@ function updateSurface(){
       // KRANKENHAUS: H
       else if(nearHouse && keys['KeyH'] && !kioskOpen){
         if(lives>=3){
-          dialog={msg:'Du hast bereits 3 Herzen!',yLabel:'OK',nLabel:null,onY:()=>{dialog=null;},onN:null};
+          dialog={msg:'Du hast bereits 3 Herzen!\nMehr Herzen (bis 20) gibt es\nim Kiosk für 10 💎.',yLabel:'OK',nLabel:null,onY:()=>{dialog=null;},onN:null};
         } else if(crowns<20){
           dialog={msg:'Zu wenig Kronen! (brauche 20)',yLabel:'OK',nLabel:null,onY:()=>{dialog=null;},onN:null};
         } else {
@@ -2280,8 +2417,12 @@ function updateSurface(){
       if(keys['Digit4']||keys['Numpad4']){ kioskTab='diamond_w'; interactCooldown=20; }
       if(keys['Digit5']||keys['Numpad5']){ kioskTab='diamond_s'; interactCooldown=20; }
       if(keys['Digit6']||keys['Numpad6']){ kioskTab='diamond_r'; interactCooldown=20; }
+      if(keys['Digit7']||keys['Numpad7']){ kioskTab='ice'; interactCooldown=20; }
+      if(keys['Digit8']||keys['Numpad8']){ kioskTab='hearts'; interactCooldown=20; }
       if(keys['Escape']){ kioskOpen=false; interactCooldown=20; }
-      if(keys['Enter']){
+      if(keys['Enter'] && (kioskTab==='ice'||kioskTab==='hearts')){
+        kioskBuySpecial(); interactCooldown=15;
+      } else if(keys['Enter']){
         // Diamond upgrades use diamonds not crowns
         if(kioskTab==='diamond_w'&&diamondWeaponLevel<2&&diamonds>=100){
           diamonds-=100; diamondWeaponLevel++; playFX(880,0.3,'sine',0.25); interactCooldown=30;
@@ -2638,7 +2779,7 @@ function updateBoss(){
     p.x+=p.vx; p.y+=p.vy; p.life--;
     if(p.life<=0) return false;
     if(!boss.dead&&circRect(p.x,p.y,p.r,boss.x,boss.y,boss.w,boss.h)){
-      boss.hits++;
+      boss.hits += p.missile ? p.power : 1;
       boss.hp=boss.maxHp-boss.hits;
       for(let j=0;j<5;j++) hitFX.push({x:p.x,y:p.y,vx:(Math.random()-.5)*5,vy:(Math.random()-.5)*5,life:18,color:'#4af'});
       playFX(440+boss.hits*8,0.1,'sine',0.15);
@@ -2746,6 +2887,7 @@ function render(){
     case S.SPLASH_GATE: renderSplashGate(); break;
     case S.SPLASH_BOSS: renderSplashBoss(); break;
   }
+  if(isMissileState()) drawIceMissiles();
   // Mobile touch UI update
   if(mobileMode) { updateTouchUI(); drawVirtualButtons(); }
 }
@@ -3148,7 +3290,13 @@ function drawHUD(){
 
   // RIGHT: hearts – kept 170px from right edge so X+mute buttons don't overlap
   ctx.font='26px Arial'; ctx.textAlign='right';
-  for(let i=0;i<3;i++) ctx.fillText(i<lives?'❤️':'🖤', W-170-i*36, 36);
+  if(lives<=3){
+    for(let i=0;i<3;i++) ctx.fillText(i<lives?'❤️':'🖤', W-170-i*36, 36);
+  } else {
+    ctx.fillText('❤️', W-170-2*36, 36);
+    ctx.font='bold 22px Courier New'; ctx.fillStyle='#ff6688';
+    ctx.fillText('×'+lives, W-170, 34);
+  }
 
   // Shield bar – bigger, below hearts
   const barW=160, barH=14, bx=W-170-2*36-barW-16, by=8;
@@ -3446,36 +3594,91 @@ function drawKioskBuilding(wx, gy){
   ctx.fillText('💧🛡🚀',x,y-55);
 }
 
+
+function kioskBuySpecial(){
+  if(kioskTab==='ice'){
+    if(iceMissiles>=ICE_MISSILE_MAX){ playFX(150,0.15,'square',0.1); return; }
+    if(diamonds<ICE_MISSILE_COST){ playFX(150,0.15,'square',0.1); return; }
+    diamonds-=ICE_MISSILE_COST; iceMissiles++; playFX(880,0.2,'sine',0.2);
+  } else if(kioskTab==='hearts'){
+    if(lives>=HEART_MAX){ playFX(150,0.15,'square',0.1); return; }
+    if(diamonds<HEART_COST){ playFX(150,0.15,'square',0.1); return; }
+    diamonds-=HEART_COST; lives++; playFX(660,0.25,'sine',0.2);
+  }
+}
+const KIOSK_TABS=[
+  {key:'weapon',label:'💧 Waffe [1]'},{key:'shield',label:'🛡 Schild [2]'},
+  {key:'rocket',label:'🚀 Rakete [3]'},{key:'diamond_w',label:'💎 D-Waffe [4]'},
+  {key:'diamond_s',label:'💎 D-Schild [5]'},{key:'diamond_r',label:'💎 D-Rakete [6]'},
+  {key:'ice',label:'❄️ Eiskanone [7]'},{key:'hearts',label:'❤️ Herzen [8]'}
+];
+function getKioskLayout(){
+  const dw=Math.min(W-20,620), dh=330, dx=W/2-dw/2, dy=H/2-dh/2-20;
+  const tw=(dw-40)/4, th=32;
+  const tabs=KIOSK_TABS.map((t,i)=>({...t, x:dx+20+(i%4)*tw, y:dy+52+Math.floor(i/4)*(th+6), w:tw-6, h:th}));
+  return {dw,dh,dx,dy,tabs,cy:dy+136};
+}
 function renderKiosk(){
   if(!kioskOpen) return;
-  const dw=500, dh=260, dx=W/2-dw/2, dy=H/2-dh/2-20;
+  const KL=getKioskLayout();
+  const {dw,dh,dx,dy}=KL;
 
   ctx.fillStyle='rgba(10,5,0,0.93)';
   ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.fill();
   ctx.strokeStyle='#c87800'; ctx.lineWidth=2.5;
   ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.stroke();
 
-  ctx.fillStyle='#ffd700'; ctx.font='bold 16px Courier New'; ctx.textAlign='center';
-  ctx.fillText('🛒 KIOSK – Upgrades  (1/2/3 wählen, ENTER kaufen, ESC schließen)',W/2,dy+22);
+  ctx.fillStyle='#ffd700'; ctx.font='bold 15px Courier New'; ctx.textAlign='center';
+  ctx.fillText('🛒 KIOSK  (1–8 wählen, ENTER kaufen, ESC schließen)',W/2,dy+22);
   ctx.fillStyle='#fa0'; ctx.font='14px Courier New';
-  ctx.fillText(`Kronen: 👑 ${crowns}`,W/2,dy+42);
+  ctx.fillText(`Kronen: 👑 ${crowns}    Diamanten: 💎 ${diamonds}`,W/2,dy+42);
 
-  // Tabs
-  const tabs=[{key:'weapon',label:'💧 Waffe [1]'},{key:'shield',label:'🛡 Schild [2]'},{key:'rocket',label:'🚀 Rakete [3]'},{key:'diamond_w',label:'💎 D-Waffe [4]'},{key:'diamond_s',label:'💎 D-Schild [5]'},{key:'diamond_r',label:'💎 D-Rakete [6]'}];
-  const tw=(dw-40)/3;
-  tabs.forEach((t,i)=>{
-    const tx=dx+20+i*tw;
-    ctx.fillStyle=kioskTab===t.key?'rgba(200,120,0,0.6)':'rgba(60,40,0,0.5)';
-    ctx.strokeStyle=kioskTab===t.key?'#ffd700':'#664';
-    ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.roundRect(tx,dy+52,tw-6,32,8); ctx.fill(); ctx.stroke();
-    ctx.fillStyle=kioskTab===t.key?'#fff':'#aaa';
-    ctx.font='bold 13px Courier New'; ctx.textAlign='center';
-    ctx.fillText(t.label,tx+tw/2-3,dy+73);
+  KL.tabs.forEach(t=>{
+    const on=kioskTab===t.key;
+    ctx.fillStyle=on?'rgba(200,120,0,0.6)':'rgba(60,40,0,0.5)';
+    ctx.strokeStyle=on?'#ffd700':'#664'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(t.x,t.y,t.w,t.h,8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=on?'#fff':'#aaa'; ctx.font='bold 12px Courier New'; ctx.textAlign='center';
+    ctx.fillText(t.label,t.x+t.w/2,t.y+21);
   });
 
+  // Special tabs: Eiskanone / Herzen
+  if(kioskTab==='ice'||kioskTab==='hearts'){
+    const isIce=kioskTab==='ice';
+    const have=isIce?iceMissiles:lives, max=isIce?ICE_MISSILE_MAX:HEART_MAX, cost=isIce?ICE_MISSILE_COST:HEART_COST;
+    const cy=KL.cy;
+    ctx.textAlign='center'; ctx.fillStyle='#cfe'; ctx.font='bold 15px Courier New';
+    ctx.fillText(isIce?'❄️ EISKANONE – Eis-Lenkraketen':'❤️ EXTRA-HERZEN', W/2, cy+6);
+    ctx.fillStyle='#aaa'; ctx.font='12px Courier New';
+    if(isIce){
+      ctx.fillText('Rakete sucht den Gegner von alleine: 20-facher Schaden!', W/2, cy+26);
+      ctx.fillText('Im Bosskampf mit R oder dem ❄️🚀-Button abfeuern.', W/2, cy+42);
+    } else {
+      ctx.fillText('Mehr Herzen = du hältst im Kampf länger durch.', W/2, cy+26);
+      ctx.fillText(`Bis zu ${HEART_MAX} Herzen möglich.`, W/2, cy+42);
+    }
+    // inventory icons
+    const icon=isIce?'🚀':'❤️', per=10, sz=Math.min(26,(dw-60)/per);
+    ctx.font=`${Math.floor(sz*0.8)}px Arial`;
+    for(let i=0;i<max;i++){
+      const ix=W/2-(per*sz)/2+(i%per)*sz+sz/2, iy=cy+72+Math.floor(i/per)*sz;
+      ctx.globalAlpha=i<have?1:0.18; ctx.fillText(icon, ix, iy); 
+    }
+    ctx.globalAlpha=1;
+    ctx.fillStyle='#fff'; ctx.font='bold 14px Courier New';
+    ctx.fillText(`${isIce?'🎒 Rucksack':'Herzen'}: ${have} / ${max}`, W/2, cy+72+2*sz+6);
+    // buy button
+    const b={x:W/2-140, y:dy+dh-52, w:280, h:40};
+    const full=have>=max, broke=diamonds<cost, can=!full&&!broke;
+    ctx.fillStyle=can?'rgba(0,130,60,0.9)':'rgba(70,70,70,0.6)';
+    ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,10); ctx.fill();
+    ctx.fillStyle=can?'#fff':'#f99'; ctx.font='bold 14px Courier New';
+    ctx.fillText(full?'✅ Voll!':broke?`Zu wenig 💎 (brauche ${cost})`:`ENTER: 1 kaufen (${cost} 💎)`, W/2, b.y+26);
+    return;
+  }
+
   // Content per tab
-  const cy=dy+100;
+  const cy=KL.cy;
   const UPGRADES={
     diamond_r:[
       {name:'Stufe 1 (Basis)',   desc:'1 Rakete',              cost:0,   owned:diamondRocketLevel>=0, diamond:true},
@@ -3615,7 +3818,9 @@ function renderSaveMenu(){
 
   const isSave = gs === S.SAVEMENU;
   const saves  = getAllSaves();
-  const PW=560, PH=480, PX=W/2-PW/2, PY=H/2-PH/2;
+  const L = getSaveMenuLayout();
+  const {PW,PH,PX,PY} = L;
+  clampSaveScroll(saves.length);
 
   // Panel
   ctx.fillStyle='rgba(0,5,20,0.95)';
@@ -3653,8 +3858,8 @@ function renderSaveMenu(){
     ctx.fillStyle='#aaa'; ctx.font='13px Courier New'; ctx.textAlign='center';
     ctx.fillText('Vorhandene Spielstände:', W/2, PY+200);
 
-    saves.forEach((s,i)=>{
-      const sy=PY+216+i*38;
+    saves.slice(saveListScroll, saveListScroll+L.saveVisibleRows).forEach((s,j)=>{
+      const sy=L.saveListTop+j*L.saveRowH;
       ctx.fillStyle='rgba(255,255,255,0.04)';
       ctx.beginPath(); ctx.roundRect(PX+20,sy,PW-40,32,6); ctx.fill();
       ctx.fillStyle='#ddd'; ctx.font='13px Courier New'; ctx.textAlign='left';
@@ -3662,6 +3867,11 @@ function renderSaveMenu(){
       ctx.fillStyle='#888'; ctx.font='11px Courier New'; ctx.textAlign='right';
       ctx.fillText(`Lv.${s.level} | 👑${s.crowns} | ${s.date}`, PX+PW-32, sy+22);
     });
+    drawSaveScrollbar(PX+PW-14, L.saveListTop, L.saveVisibleRows*L.saveRowH-6, saveListScroll, L.saveVisibleRows, saves.length);
+    if(saves.length>L.saveVisibleRows){
+      ctx.fillStyle='#668'; ctx.font='11px Courier New'; ctx.textAlign='center';
+      ctx.fillText(`${saves.length} Spielstände  |  Mausrad zum Blättern`, W/2, PY+PH-50);
+    }
     if(!saves.length){
       ctx.fillStyle='#556'; ctx.font='13px Courier New'; ctx.textAlign='center';
       ctx.fillText('Noch keine Spielstände', W/2, PY+240);
@@ -3674,8 +3884,11 @@ function renderSaveMenu(){
     } else {
       ctx.fillStyle='#adf'; ctx.font='13px Courier New'; ctx.textAlign='center';
       ctx.fillText('↑↓ Auswählen  |  ENTER Laden  |  DEL Löschen  |  ESC Zurück', W/2, PY+60);
-      saves.forEach((s,i)=>{
-        const sy=PY+84+i*60;
+      ctx.fillStyle='#668'; ctx.font='11px Courier New';
+      ctx.fillText(`Spielstand ${saveMenuSelected+1} von ${saves.length}`+(saves.length>L.visibleRows?'  |  Bild↑/Bild↓, Mausrad':''), W/2, PY+76);
+      saves.slice(saveMenuScroll, saveMenuScroll+L.visibleRows).forEach((s,j)=>{
+        const i=saveMenuScroll+j;
+        const sy=L.listTop+j*L.rowH;
         const sel=i===saveMenuSelected;
         ctx.fillStyle=sel?'rgba(30,80,180,0.6)':'rgba(255,255,255,0.04)';
         ctx.strokeStyle=sel?'#4af':'#1a3a5a'; ctx.lineWidth=sel?2:1;
@@ -3692,6 +3905,7 @@ function renderSaveMenu(){
         ctx.fillStyle=sel?'#8cf':'#556'; ctx.font='11px Courier New'; ctx.textAlign='right';
         ctx.fillText(s.date, PX+PW-32, sy+40);
       });
+      drawSaveScrollbar(PX+PW-14, L.listTop, L.visibleRows*L.rowH-8, saveMenuScroll, L.visibleRows, saves.length);
     }
   }
 
@@ -4841,70 +5055,7 @@ function advanceRubyGate(){
   }
 }
 
-function renderRubyGate(){
-  // Dark red background
-  const bg=ctx.createLinearGradient(0,0,0,H);
-  bg.addColorStop(0,'#200010'); bg.addColorStop(1,'#500030');
-  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-  drawStars(0.5);
-
-  if(!rubyGateState) return;
-  const rgs=rubyGateState;
-  const q=rgs.questions[rgs.current];
-  const dw=520, dh=q.type==='mc'?320:260, dx=W/2-dw/2, dy=H/2-dh/2;
-
-  // Panel
-  ctx.fillStyle='rgba(20,0,10,0.95)';
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.fill();
-  ctx.strokeStyle='#ff2244'; ctx.lineWidth=2.5;
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.stroke();
-
-  // Header
-  ctx.textAlign='center';
-  ctx.fillStyle='#ff4466'; ctx.font='bold 14px Courier New';
-  ctx.fillText(`🔴 RUBINPLANET-TOR  |  Fach ${rgs.current+1}/4: ${q.subject||SUBJECTS[rgs.current]}`,W/2,dy+24);
-  // Progress dots
-  for(let i=0;i<4;i++){
-    const col=i<rgs.current?'#ff4466':i===rgs.current?'#fff':'#444';
-    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(W/2+(i-1.5)*22,dy+40,5,0,Math.PI*2); ctx.fill();
-  }
-
-  if(rgs.phase==='wait'){
-    ctx.fillStyle=rgs.correctText.startsWith('✓')?'#8f8':'#f88';
-    ctx.font='bold 22px Courier New'; ctx.textAlign='center';
-    ctx.fillText(rgs.correctText,W/2,dy+dh/2-10);
-    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font='14px Courier New';
-    ctx.fillText('ENTER: Weiter',W/2,dy+dh-20);
-    return;
-  }
-
-  // Question
-  ctx.fillStyle='#fff'; ctx.font='bold 19px Courier New'; ctx.textAlign='center';
-  q.q.split('\n').forEach((l,i)=>ctx.fillText(l,W/2,dy+66+i*26));
-  const qBase=dy+66+q.q.split('\n').length*26+8;
-
-  if(q.type==='mc'){
-    q.choices.forEach((ch,i)=>{
-      const sel=rgs.selectedMC===i;
-      const cy=qBase+i*56;
-      ctx.fillStyle=sel?'rgba(180,0,40,0.6)':'rgba(30,0,10,0.5)';
-      ctx.strokeStyle=sel?'#ff4466':'#440020'; ctx.lineWidth=sel?2:1;
-      ctx.beginPath(); ctx.roundRect(dx+16,cy,dw-32,44,8); ctx.fill(); ctx.stroke();
-      ctx.fillStyle=sel?'#fff':'#cc8899'; ctx.font=(sel?'bold ':'')+`15px Courier New`;
-      ctx.textAlign='center'; ctx.fillText(`${i+1}. ${ch}`,W/2,cy+28);
-    });
-    ctx.fillStyle='rgba(255,100,100,0.4)'; ctx.font='12px Courier New';
-    ctx.fillText('1/2/3 wählen → ENTER  |  ESC: Abbrechen',W/2,dy+dh-14);
-  } else {
-    const iw=180,ix=W/2-iw/2,iy=qBase;
-    ctx.fillStyle='rgba(255,255,255,0.08)'; ctx.strokeStyle='#ff4466'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.roundRect(ix,iy,iw,44,8); ctx.fill(); ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.font='bold 26px Courier New'; ctx.textAlign='center';
-    ctx.fillText(rgs.input||(Math.floor(frame/20)%2===0?'|':''),W/2,iy+32);
-    ctx.fillStyle='rgba(255,100,100,0.4)'; ctx.font='12px Courier New';
-    ctx.fillText('Zahl eingeben → ENTER  |  ESC: Abbrechen',W/2,dy+dh-14);
-  }
-}
+function renderRubyGate(){ drawGatePanel(rubyGateState, 'ruby'); }
 
 // ═══════════════════════════════════════════════════════════════════
 //  RUBY WORLD SETUP
@@ -5428,75 +5579,226 @@ function advanceSplashGate(){
   }
 }
 
-function renderSplashGate(){
+function renderSplashGate(){ drawGatePanel(splashGateState, 'splash'); if(dialog) renderDialog(); }
+function askSplashPlay(){
+  clearAllKeys();
+  gs = S.SPLASH_GATE; splashGateState = null;
+  dialog = {
+    msg:'💦 WASSERBOMBEN-PLANET\n\nMöchtest du Bomberman spielen?',
+    yLabel:'JA, spielen!', nLabel:'Nein, zurück',
+    onY:()=>{ dialog=null; if(!splashGatePassed) startSplashGate(); else startSplashGame(); },
+    onN:()=>{ dialog=null; enterSpace('splash'); }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  SHARED GATE UI (Rubin-Tor + Wasserbomben-Tor): big, touch-friendly
+// ═══════════════════════════════════════════════════════════════════
+const GATE_THEMES = {
+  ruby:   { bg1:'#200010', bg2:'#500030', panel:'rgba(20,0,10,0.96)', border:'#ff2244', accent:'#ff6688',
+            selFill:'rgba(180,0,40,0.7)', unsel:'rgba(40,0,15,0.6)', unselBorder:'#661133', dim:'#cc8899',
+            icon:'🔴', title:'RUBINPLANET-TOR' },
+  splash: { bg1:'#003040', bg2:'#0088bb', panel:'rgba(0,20,40,0.96)', border:'#33ccff', accent:'#66ddff',
+            selFill:'rgba(0,120,200,0.7)', unsel:'rgba(0,35,60,0.6)', unselBorder:'#1d4d77', dim:'#9cc4e4',
+            icon:'💦', title:'WASSERBOMBEN-TOR' }
+};
+
+function gateWrap(text, maxW, font){
+  ctx.font=font;
+  const out=[];
+  for(const para of String(text).split('\n')){
+    let cur='';
+    for(const w of para.split(' ')){
+      const t=cur?cur+' '+w:w;
+      if(ctx.measureText(t).width>maxW && cur){ out.push(cur); cur=w; } else cur=t;
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
+function gateLayoutHeight(st, q, k, dw){
+  const pad=22*k;
+  let h=pad + 34*k + 26*k;                       // header + dots
+  if(st.phase==='wait'){
+    const lines=gateWrap(st.correctText, dw-60*k, `bold ${Math.round(34*k)}px Courier New`);
+    return h + lines.length*44*k + 40*k + 76*k + pad + 30*k;
+  }
+  const qLines=gateWrap(q.q, dw-50*k, `bold ${Math.round(32*k)}px Courier New`);
+  h += qLines.length*42*k + 20*k;
+  if(q.type==='mc') h += q.choices.length*(74*k+14*k) + 72*k;
+  else h += 78*k + 16*k + 3*(66*k+10*k);
+  return h + 34*k + pad;
+}
+
+function drawGatePanel(st, themeKey){
+  const T=GATE_THEMES[themeKey];
   const bg=ctx.createLinearGradient(0,0,0,H);
-  bg.addColorStop(0,'#003040'); bg.addColorStop(1,'#0088bb');
+  bg.addColorStop(0,T.bg1); bg.addColorStop(1,T.bg2);
   ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
   drawStars(0.4);
+  if(!st) return;
+  const q=st.questions[st.current];
+  st._hits=[];
 
-  if(!splashGateState) return;
-  const sgs = splashGateState;
-  const q = sgs.questions[sgs.current];
-  const dw=560, dh=q.type==='mc'?340:260, dx=W/2-dw/2, dy=H/2-dh/2;
+  // Scale: as big as the screen allows
+  let k=Math.min(W/680, H/560, 2.2);
+  let dw=Math.min(W-24, 760*k);
+  for(let n=0;n<12 && gateLayoutHeight(st,q,k,dw)>H-16;n++){ k*=0.9; dw=Math.min(W-24,760*k); }
+  const dh=gateLayoutHeight(st,q,k,dw);
+  const dx=W/2-dw/2, dy=Math.max(8,H/2-dh/2);
+  const pad=22*k;
 
-  // Panel
-  ctx.fillStyle='rgba(0,20,40,0.95)';
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.fill();
-  ctx.strokeStyle='#33ccff'; ctx.lineWidth=2.5;
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.stroke();
+  ctx.fillStyle=T.panel;
+  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,20*k); ctx.fill();
+  ctx.strokeStyle=T.border; ctx.lineWidth=3*k;
+  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,20*k); ctx.stroke();
 
   // Header
-  ctx.textAlign='center';
-  ctx.fillStyle='#66ddff'; ctx.font='bold 14px Courier New';
-  ctx.fillText(`💦 WASSERBOMBEN-TOR  |  Frage ${sgs.current+1}/4  |  Fach: ${q.subject}`, W/2, dy+24);
-  // Progress dots (4)
-  for(let i=0;i<4;i++){
-    const col = i<sgs.current ? '#66ddff' : i===sgs.current ? '#fff' : '#334';
-    ctx.fillStyle=col;
-    ctx.beginPath(); ctx.arc(W/2+(i-1.5)*22, dy+42, 5, 0, Math.PI*2); ctx.fill();
-  }
+  let y=dy+pad+20*k;
+  ctx.textAlign='center'; ctx.fillStyle=T.accent;
+  ctx.font=`bold ${Math.round(20*k)}px Courier New`;
+  ctx.fillText(`${T.icon} ${T.title}  |  Frage ${st.current+1}/${st.questions.length}  |  ${q.subject||''}`, W/2, y);
+  // Abort (X) button
+  const xb={x:dx+dw-52*k, y:dy+10*k, w:42*k, h:42*k};
+  ctx.fillStyle='rgba(150,40,40,0.8)';
+  ctx.beginPath(); ctx.roundRect(xb.x,xb.y,xb.w,xb.h,10*k); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(24*k)}px Arial`;
+  ctx.fillText('✕', xb.x+xb.w/2, xb.y+xb.h*0.72);
+  st._hits.push({type:'abort', ...xb});
 
-  if(sgs.phase==='wait'){
-    ctx.fillStyle = sgs.correctText.startsWith('✓') ? '#8f8' : '#f88';
-    ctx.font='bold 24px Courier New'; ctx.textAlign='center';
-    // Word wrap the correct text
-    const lines = wrapText(sgs.correctText, dw-40);
-    lines.forEach((l,i)=>ctx.fillText(l, W/2, dy+dh/2-((lines.length-1)*14)+i*28));
-    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font='14px Courier New';
-    ctx.fillText('ENTER: Weiter', W/2, dy+dh-20);
+  // Progress dots
+  y+=26*k;
+  for(let i=0;i<st.questions.length;i++){
+    ctx.fillStyle = i<st.current ? T.accent : i===st.current ? '#fff' : '#334';
+    ctx.beginPath(); ctx.arc(W/2+(i-(st.questions.length-1)/2)*30*k, y, 8*k, 0, Math.PI*2); ctx.fill();
+  }
+  y+=14*k;
+
+  // ── Feedback phase ──
+  if(st.phase==='wait'){
+    const ok=st.correctText.startsWith('✓');
+    const font=`bold ${Math.round(34*k)}px Courier New`;
+    const lines=gateWrap(st.correctText, dw-60*k, font);
+    ctx.font=font; ctx.fillStyle=ok?'#8f8':'#f99';
+    y+=40*k;
+    lines.forEach(l=>{ ctx.fillText(l, W/2, y); y+=44*k; });
+    const nb={x:W/2-150*k, y:y+6*k, w:300*k, h:64*k};
+    ctx.fillStyle='rgba(0,140,60,0.9)';
+    ctx.beginPath(); ctx.roundRect(nb.x,nb.y,nb.w,nb.h,14*k); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(26*k)}px Courier New`;
+    ctx.fillText('Weiter ▶', W/2, nb.y+nb.h*0.65);
+    st._hits.push({type:'next', x:dx, y:dy, w:dw, h:dh}); // tap anywhere continues
+    ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font=`${Math.round(16*k)}px Courier New`;
+    ctx.fillText('Tippen oder ENTER', W/2, dy+dh-pad);
     return;
   }
 
-  // Question
-  ctx.fillStyle='#fff'; ctx.font='bold 19px Courier New'; ctx.textAlign='center';
-  q.q.split('\n').forEach((l,i)=>ctx.fillText(l, W/2, dy+74+i*26));
-  const qBase = dy+74 + q.q.split('\n').length*26 + 8;
+  // ── Question ──
+  const qFont=`bold ${Math.round(32*k)}px Courier New`;
+  const qLines=gateWrap(q.q, dw-50*k, qFont);
+  ctx.font=qFont; ctx.fillStyle='#fff';
+  y+=34*k;
+  qLines.forEach(l=>{ ctx.fillText(l, W/2, y); y+=42*k; });
+  y+=4*k;
 
   if(q.type==='mc'){
     q.choices.forEach((ch,i)=>{
-      const sel = sgs.selectedMC===i;
-      const cy = qBase + i*56;
-      ctx.fillStyle = sel ? 'rgba(0,120,200,0.6)' : 'rgba(0,30,50,0.5)';
-      ctx.strokeStyle = sel ? '#66ddff' : '#113355'; ctx.lineWidth = sel?2:1;
-      ctx.beginPath(); ctx.roundRect(dx+16,cy,dw-32,44,8); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = sel ? '#fff' : '#88aacc';
-      ctx.font=(sel?'bold ':'')+`15px Courier New`;
-      ctx.textAlign='center';
-      ctx.fillText(`${i+1}. ${ch}`, W/2, cy+28);
+      const sel=st.selectedMC===i;
+      const b={x:dx+pad, y, w:dw-2*pad, h:74*k};
+      ctx.fillStyle=sel?T.selFill:T.unsel;
+      ctx.strokeStyle=sel?T.accent:T.unselBorder; ctx.lineWidth=(sel?3:1.5)*k;
+      ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,14*k); ctx.fill(); ctx.stroke();
+      // number badge
+      ctx.fillStyle=sel?'#fff':T.accent;
+      ctx.beginPath(); ctx.arc(b.x+38*k, b.y+b.h/2, 22*k, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle=sel?'#000':T.panel.replace('0.96','1'); ctx.font=`bold ${Math.round(24*k)}px Courier New`;
+      ctx.textAlign='center'; ctx.fillText(String(i+1), b.x+38*k, b.y+b.h/2+8*k);
+      // text
+      const cFont=`${sel?'bold ':''}${Math.round(28*k)}px Courier New`;
+      const cl=gateWrap(ch, b.w-110*k, cFont);
+      ctx.font=cl.length>1?`${sel?'bold ':''}${Math.round(22*k)}px Courier New`:cFont;
+      ctx.fillStyle=sel?'#fff':T.dim;
+      const lh=cl.length>1?24*k:0;
+      cl.slice(0,2).forEach((l,li)=>ctx.fillText(l, b.x+b.w/2+20*k, b.y+b.h/2+10*k-lh/2+li*lh));
+      st._hits.push({type:'choice', i, ...b});
+      y+=74*k+14*k;
     });
-    ctx.fillStyle='rgba(100,180,220,0.5)'; ctx.font='12px Courier New';
-    ctx.fillText('1/2/3 wählen → ENTER  |  ESC: Abbrechen', W/2, dy+dh-14);
+    // Confirm button
+    const can=st.selectedMC>=0;
+    const cb={x:W/2-170*k, y:y+2*k, w:340*k, h:60*k};
+    ctx.fillStyle=can?'rgba(0,150,60,0.95)':'rgba(70,70,70,0.6)';
+    ctx.beginPath(); ctx.roundRect(cb.x,cb.y,cb.w,cb.h,14*k); ctx.fill();
+    ctx.fillStyle=can?'#fff':'#aaa'; ctx.font=`bold ${Math.round(26*k)}px Courier New`;
+    ctx.textAlign='center'; ctx.fillText('✓ Antworten', W/2, cb.y+cb.h*0.66);
+    if(can) st._hits.push({type:'confirm', ...cb});
+    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font=`${Math.round(15*k)}px Courier New`;
+    ctx.fillText('Antwort antippen  oder  1/2/3 + ENTER  |  ESC: Abbrechen', W/2, dy+dh-pad+4*k);
   } else {
-    const iw=180, ix=W/2-iw/2, iy=qBase;
-    ctx.fillStyle='rgba(255,255,255,0.08)';
-    ctx.strokeStyle='#66ddff'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.roundRect(ix,iy,iw,44,8); ctx.fill(); ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.font='bold 26px Courier New'; ctx.textAlign='center';
-    ctx.fillText(sgs.input || (Math.floor(frame/20)%2===0?'|':''), W/2, iy+32);
-    ctx.fillStyle='rgba(100,180,220,0.5)'; ctx.font='12px Courier New';
-    ctx.fillText('Zahl eingeben → ENTER  |  ESC: Abbrechen', W/2, dy+dh-14);
+    // Input box
+    const ib={x:W/2-150*k, y, w:300*k, h:72*k};
+    ctx.fillStyle='rgba(255,255,255,0.1)'; ctx.strokeStyle=T.accent; ctx.lineWidth=3*k;
+    ctx.beginPath(); ctx.roundRect(ib.x,ib.y,ib.w,ib.h,14*k); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(44*k)}px Courier New`; ctx.textAlign='center';
+    ctx.fillText(st.input || (Math.floor(frame/20)%2===0?'|':''), W/2, ib.y+ib.h*0.7);
+    y+=78*k+16*k;
+    // On-screen number pad
+    const rows=[['1','2','3','4','5'],['6','7','8','9','0'],['del','ok']];
+    const bw=66*k, gap=10*k;
+    rows.forEach((row,ri)=>{
+      const widths=row.map(n=>n==='ok'?bw*3+gap*2:n==='del'?bw*2+gap:bw);
+      const total=widths.reduce((a,b)=>a+b,0)+gap*(row.length-1);
+      let x=W/2-total/2;
+      row.forEach((n,ci)=>{
+        const b={x, y, w:widths[ci], h:66*k};
+        const isOk=n==='ok', isDel=n==='del';
+        const okEnabled=isOk && st.input.length>0;
+        ctx.fillStyle=isOk?(okEnabled?'rgba(0,150,60,0.95)':'rgba(70,70,70,0.6)'):isDel?'rgba(150,60,40,0.85)':T.unsel;
+        ctx.strokeStyle=isOk||isDel?'transparent':T.accent; ctx.lineWidth=1.5*k;
+        ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,12*k); ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round((isOk||isDel?26:32)*k)}px Courier New`;
+        ctx.fillText(isOk?'✓ OK':isDel?'⌫ Löschen':n, b.x+b.w/2, b.y+b.h*0.66);
+        if(!isOk || okEnabled) st._hits.push({type:isOk?'ok':isDel?'del':'digit', n, ...b});
+        x+=widths[ci]+gap;
+      });
+      y+=66*k+10*k;
+    });
+    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font=`${Math.round(15*k)}px Courier New`;
+    ctx.fillText('Zahlen antippen  oder  Tastatur + ENTER  |  ESC: Abbrechen', W/2, dy+dh-pad+4*k);
   }
 }
+
+// Tap/click handling for both gates (canvas coordinates)
+function handleGateTap(cx, cy){
+  let st, check, advance, abort;
+  if(gs===S.RUBY_GATE && rubyGateState){
+    st=rubyGateState; check=checkRubyAnswer; advance=advanceRubyGate;
+    abort=()=>{ rubyGateState=null; enterSpace('ruby'); };
+  } else if(gs===S.SPLASH_GATE && splashGateState){
+    st=splashGateState; check=checkSplashAnswer; advance=advanceSplashGate;
+    abort=()=>{ splashGateState=null; enterSpace('splash'); };
+  } else return false;
+  const hits=st._hits||[];
+  // Check specific buttons first (abort), then rest
+  const order=[...hits.filter(h=>h.type==='abort'), ...hits.filter(h=>h.type!=='abort')];
+  const h=order.find(b=>cx>=b.x && cx<=b.x+b.w && cy>=b.y && cy<=b.y+b.h);
+  if(!h) return true;
+  const q=st.questions[st.current];
+  switch(h.type){
+    case 'abort':  abort(); break;
+    case 'next':   advance(); break;
+    case 'choice':
+      if(st.selectedMC===h.i) check(h.i===q.a, q);   // second tap on same answer confirms
+      else { st.selectedMC=h.i; playFX(520,0.05,'sine',0.1); }
+      break;
+    case 'confirm': if(st.selectedMC>=0) check(st.selectedMC===q.a, q); break;
+    case 'digit':  if(st.input.length<6){ st.input+=h.n; playFX(600,0.03,'sine',0.08); } break;
+    case 'del':    st.input=st.input.slice(0,-1); break;
+    case 'ok':     if(st.input) check(st.input.trim()===q.a.toString(), q); break;
+  }
+  return true;
+}
+
 
 function wrapText(text, maxW){
   ctx.font='bold 22px Courier New';
@@ -6273,7 +6575,7 @@ function updateSplashGame(){
 
   // Update enemies (SP only)
   for(const e of splashEnemies){
-    if(!e.alive){ e.hitTimer--; continue; }
+    if(!e.alive){ if(e.hitTimer>0) e.hitTimer--; continue; }
     const etx = e.gx*CS, ety = e.gy*CS;
     if(Math.abs(e.px-etx)<1 && Math.abs(e.py-ety)<1){
       e.px=etx; e.py=ety;
@@ -6535,11 +6837,13 @@ function renderSplashGame(){
   for(const e of splashEnemies){
     const px = OX + e.px, py = OY + e.py;
     if(!e.alive){
-      const fade = e.hitTimer/40;
-      ctx.globalAlpha=fade;
+      if(e.hitTimer<=0) continue;               // puddle gone
+      const fade = Math.max(0, Math.min(1, e.hitTimer/40));
+      ctx.save();
+      ctx.globalAlpha = fade;
       ctx.fillStyle='rgba(50,150,220,0.7)';
-      ctx.beginPath(); ctx.ellipse(px+CS/2,py+CS-8, CS*0.35*(1-fade), CS*0.15*(1-fade)+6, 0, 0, Math.PI*2); ctx.fill();
-      ctx.globalAlpha=1;
+      ctx.beginPath(); ctx.ellipse(px+CS/2, py+CS-8, CS*0.3, CS*0.1, 0, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
       continue;
     }
     const bob = Math.sin(frame*0.15 + e.gx)*2;
@@ -7131,46 +7435,74 @@ function renderMenu(){
 }
 
 let menuHover='';
+canvas.addEventListener('wheel', e=>{
+  if(gs!==S.LOADMENU && gs!==S.SAVEMENU) return;
+  e.preventDefault();
+  const saves=getAllSaves();
+  const step=e.deltaY>0?1:-1;
+  if(gs===S.LOADMENU){
+    saveMenuSelected=Math.max(0,Math.min(saves.length-1,saveMenuSelected+step));
+  } else {
+    saveListScroll+=step;
+  }
+  clampSaveScroll(saves.length);
+},{passive:false});
 canvas.addEventListener('click', e=>{
+  { const r=canvas.getBoundingClientRect(); if(handleMissileTap((e.clientX-r.left)*(W/r.width),(e.clientY-r.top)*(H/r.height))) return; }
+  if((gs===S.RUBY_GATE || gs===S.SPLASH_GATE) && !dialog){
+    const r=canvas.getBoundingClientRect();
+    handleGateTap((e.clientX-r.left)*(W/r.width), (e.clientY-r.top)*(H/r.height));
+    return;
+  }
   // Load menu mouse clicks
   if(gs===S.LOADMENU){
     const saves=getAllSaves();
-    const PH=480, PY=H/2-PH/2, PX=W/2-280;
-    saves.forEach((s,i)=>{
-      const sy=PY+84+i*60;
-      if(e.clientY>=sy&&e.clientY<=sy+52&&e.clientX>=PX+20&&e.clientX<=PX+540){
-        saveMenuSelected=i; loadGame(s); return;
+    const L=getSaveMenuLayout();
+    for(let j=0;j<L.visibleRows;j++){
+      const i=saveMenuScroll+j;
+      if(!saves[i]) break;
+      const sy=L.listTop+j*L.rowH;
+      if(e.clientY>=sy&&e.clientY<=sy+52&&e.clientX>=L.PX+20&&e.clientX<=L.PX+L.PW-20){
+        saveMenuSelected=i; loadGame(saves[i]); return;
       }
-    });
-    if(e.clientY>=H/2+PH/2-40&&e.clientX>=W/2-280+20&&e.clientX<=W/2-280+140) gs=S.MENU;
+    }
+    if(e.clientY>=L.PY+L.PH-40&&e.clientX>=L.PX+20&&e.clientX<=L.PX+140) gs=S.MENU;
     return;
   }
   // Save menu: click save button
   if(gs===S.SAVEMENU){
-    const PH=480,PY=H/2-PH/2;
+    const L=getSaveMenuLayout(); const PH=L.PH, PY=L.PY;
     if(e.clientY>=PY+130&&e.clientY<=PY+170&&e.clientX>=W/2-100&&e.clientX<=W/2+100&&saveMenuInput.trim()){
       saveGame(saveMenuInput.trim());
       saveMenuError='✅ Gespeichert!';
       saveMenuInput='';
     }
-    if(e.clientY>=PY+PH-40&&e.clientX>=W/2-280+20&&e.clientX<=W/2-280+140) gs=S.MENU;
+    if(e.clientY>=PY+PH-40&&e.clientX>=L.PX+20&&e.clientX<=L.PX+140) gs=S.MENU;
     return;
   }
   // Kiosk mouse clicks (tabs + buy button)
   if(kioskOpen && gs===S.SURFACE){
-    const dw=500,dh=260,dx=W/2-dw/2,dy=H/2-dh/2-20;
-    const tw=(dw-40)/3;
-    // Tab clicks
-    if(e.clientY>=dy+52&&e.clientY<=dy+84){
-      if(e.clientX>=dx+20&&e.clientX<=dx+20+tw)   { kioskTab='weapon'; return; }
-      if(e.clientX>=dx+20+tw&&e.clientX<=dx+20+2*tw) { kioskTab='shield'; return; }
-      if(e.clientX>=dx+20+2*tw&&e.clientX<=dx+dw-20) { kioskTab='rocket'; return; }
+    const r=canvas.getBoundingClientRect();
+    const mx=(e.clientX-r.left)*(W/r.width), my=(e.clientY-r.top)*(H/r.height);
+    const KL=getKioskLayout();
+    const t=KL.tabs.find(t=>mx>=t.x&&mx<=t.x+t.w&&my>=t.y&&my<=t.y+t.h);
+    if(t){ kioskTab=t.key; return; }
+    if(kioskTab==='ice'||kioskTab==='hearts'){
+      const b={x:W/2-140, y:KL.dy+KL.dh-52, w:280, h:40};
+      if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h) kioskBuySpecial();
+      return;
     }
-    // Buy click: middle item row (index=currentLevel+1)
-    const currentLevel=kioskTab==='weapon'?weaponLevel:kioskTab==='shield'?shieldLevel:rocketLevel;
-    const iy=dy+100+(currentLevel+1)*48;
-    if(currentLevel<2&&e.clientY>=iy&&e.clientY<=iy+40&&e.clientX>=dx+20&&e.clientX<=dx+dw-20){
-      if(crowns>=100){
+    const isD=kioskTab.startsWith('diamond');
+    const lvl={weapon:weaponLevel,shield:shieldLevel,rocket:rocketLevel,diamond_w:diamondWeaponLevel,diamond_s:diamondShieldLevel,diamond_r:diamondRocketLevel}[kioskTab];
+    const iy=KL.cy+(lvl+1)*48;
+    if(lvl<2&&my>=iy&&my<=iy+40&&mx>=KL.dx+20&&mx<=KL.dx+KL.dw-20){
+      if(isD && diamonds>=100){
+        diamonds-=100;
+        if(kioskTab==='diamond_w') diamondWeaponLevel++;
+        else if(kioskTab==='diamond_s'){ diamondShieldLevel++; shieldBlocked=0; shieldBroken=false; shieldHP=100; }
+        else diamondRocketLevel++;
+        playFX(880,0.3,'sine',0.25);
+      } else if(!isD && crowns>=100){
         crowns-=100;
         if(kioskTab==='weapon') weaponLevel++;
         else if(kioskTab==='shield') shieldLevel++;
@@ -7178,6 +7510,7 @@ canvas.addEventListener('click', e=>{
         playFX(880,0.3,'sine',0.25);
       }
     }
+    return;
   }
   // Math quiz mouse clicks
   if(mathQuiz && (gs===S.SURFACE)){
@@ -7189,7 +7522,7 @@ canvas.addEventListener('click', e=>{
     }
   }
   // Dialog buttons on surface screen
-  if(dialog && (gs===S.SURFACE||gs===S.BOSS||gs===S.BOSSWIN)){
+  if(dialog && (gs===S.SURFACE||gs===S.BOSS||gs===S.BOSSWIN||gs===S.SPLASH_GAME||gs===S.SPLASH_GATE||gs===S.SPLASH_BOSS)){
     const dw=400, dh=140, dx=W/2-dw/2, dy=H/2-dh/2+40;
     if(e.clientY>=dy+dh-52&&e.clientY<=dy+dh-12){
       if(e.clientX>=dx+20&&e.clientX<=dx+180){ dialog.onY&&dialog.onY(); return; }
@@ -8325,6 +8658,11 @@ function handleGameAreaTap(x, y) {
   const rect = canvas.getBoundingClientRect();
   const cx = (x - rect.left) * (W / rect.width);
   const cy = (y - rect.top)  * (H / rect.height);
+
+  // Eis-Lenkrakete button in boss fights
+  if (handleMissileTap(cx, cy)) return;
+  // Question gates (Rubin / Wasserbomben)
+  if ((gs === S.RUBY_GATE || gs === S.SPLASH_GATE) && !dialog) { handleGateTap(cx, cy); return; }
 
   // Menu / board / save screens
   if (gs === S.MENU || gs === S.BOARD || gs === S.SAVEMENU || gs === S.LOADMENU) {
