@@ -19,6 +19,7 @@ canvas { display:block; width:100vw; height:100vh; }
   padding:36px 50px; text-align:center; color:#fff; min-width:340px; max-width:520px;
 }
 .panel h2 { font-size:26px; margin-bottom:12px; color:#4af; }
+#nameOverlay .panel, #adminPinOverlay .panel { zoom: var(--ui-zoom, 1); }
 .panel p  { color:#aaa; margin-bottom:16px; font-size:14px; }
 input[type=text], input[type=password] {
   background:rgba(255,255,255,0.08); border:2px solid #4af; border-radius:8px;
@@ -215,7 +216,7 @@ input[type=color] { width:46px; height:30px; border:none; border-radius:6px; cur
           <button class="btn" style="font-size:11px;padding:3px 10px" onclick="setPopupScale(140);document.getElementById('cfgPopupScale').value=140">Groß 140 %</button>
           <button class="btn" style="font-size:11px;padding:3px 10px" onclick="setPopupScale(200);document.getElementById('cfgPopupScale').value=200">Riesig 200 %</button>
         </div>
-        <p style="color:#666;font-size:11px;margin-top:6px">100 % = automatisch an den Bildschirm angepasst. Gilt für Diamantbaum-Fragen, Rubin-/Wasserbomben-Tor, Klassenarbeit und Ja/Nein-Dialoge. Das Fenster wird nie größer als der Bildschirm. Wird auf diesem Gerät gespeichert.</p>
+        <p style="color:#666;font-size:11px;margin-top:6px">100 % = automatisch an den Bildschirm angepasst. Gilt für alle Fenster: Hauptmenü, Spielmodus-Auswahl, Laden/Speichern, Bestenliste, Kiosk, Schatztruhe, Diamantbaum-Fragen, Tore, Klassenarbeit, Ja/Nein-Dialoge, Story-Texte und Namenseingabe. Das Fenster wird nie größer als der Bildschirm. Wird auf diesem Gerät gespeichert.</p>
       </div>
       <p style="color:#666;font-size:11px;margin-top:10px">Änderungen gelten sofort im laufenden Spiel.</p>
     </div>
@@ -1109,13 +1110,15 @@ let saveMenuSelected = 0;
 let saveMenuScroll = 0;   // first visible row in the load list
 let saveListScroll = 0;   // first visible row in the save-menu overview
 function getSaveMenuLayout(){
-  const PW=560, PH=Math.max(480, Math.min(H-40, 720));
+  let k=uiFitK(580, 500);
+  const PW=560, PH=Math.max(480, Math.min(H/k-40, 720));
+  k=Math.min(k, (H-20)/PH);
   const PX=W/2-PW/2, PY=H/2-PH/2;
   const listTop=PY+84, rowH=60;
   const visibleRows=Math.max(1, Math.floor((PH-84-56)/rowH));
   const saveListTop=PY+216, saveRowH=38;
   const saveVisibleRows=Math.max(1, Math.floor((PH-216-56)/saveRowH));
-  return {PW,PH,PX,PY,listTop,rowH,visibleRows,saveListTop,saveRowH,saveVisibleRows};
+  return {PW,PH,PX,PY,listTop,rowH,visibleRows,saveListTop,saveRowH,saveVisibleRows,k};
 }
 function clampSaveScroll(count){
   const L=getSaveMenuLayout();
@@ -2874,6 +2877,7 @@ function updateBoard(){
 // ═══════════════════════════════════════════════════════════════════
 function render(){
   frame++;
+  if(frame%20===0) updateHtmlUiZoom();
   activePopupView=null;
   ctx.clearRect(0,0,W,H);
   switch(gs){
@@ -3519,68 +3523,32 @@ function handleMathKey(code, key) {
 }
 
 function renderMathQuiz(){
-  if (!mathQuiz) return;
-  const q = mathQuiz;
-  const dw=460, dh=200, dx=W/2-dw/2, dy=H/2-dh/2;
-
-  // Background panel
-  ctx.fillStyle='rgba(0,0,20,0.92)';
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.fill();
-  ctx.strokeStyle='#ffd700'; ctx.lineWidth=2.5;
-  ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.stroke();
-
-  ctx.textAlign='center';
-
-  // Title
-  ctx.fillStyle='#ffd700'; ctx.font='bold 15px Courier New';
-  ctx.fillText('🎁 SCHATZTRUHE – Mathe-Aufgabe (2. Klasse)',W/2,dy+22);
-
+  if(!mathQuiz) return;
+  const q=mathQuiz;
+  const mk=(c,k)=>()=>handleMathKey(c,k);
+  const v={
+    theme:'gold', dim:true,
+    header:'🎁 SCHATZTRUHE – Mathe-Aufgabe (+5 👑)', dots:[],
+    q:{q:q.question, type:'input'}, input:q.userInput||'', selectedMC:-1,
+    phase:q.phase==='input'?'ask':'wait',
+    note:(q.phase==='input' && q.attempts>0)?'Noch 1 Versuch!':'',
+    footerNum:'Zahlen antippen  oder  Tastatur + ENTER  |  ESC: Abbrechen',
+    onInput:s=>{ q.userInput=s.slice(0,4); },
+    onOk:s=>{ q.userInput=s; handleMathKey('Enter','Enter'); },
+    onAbort:()=>{ mathQuiz=null; },
+    onNext:()=>{}
+  };
   if(q.phase==='correct'){
-    ctx.fillStyle='#8f8'; ctx.font='bold 22px Courier New';
-    ctx.fillText('✓ RICHTIG! +5 👑 Kronen!',W/2,dy+70);
-    ctx.fillStyle='#fff'; ctx.font='16px Courier New';
-    ctx.fillText('Noch eine Aufgabe?',W/2,dy+105);
-    drawQuizBtn(dx+30,dy+130,180,40,'J – Neue Aufgabe','#1a6a1a','#8f8');
-    drawQuizBtn(dx+dw-210,dy+130,180,40,'N – Schließen','#6a1a1a','#f88');
-    return;
+    v.feedback='✓ RICHTIG! +5 👑 Kronen!'; v.subText='Noch eine Aufgabe?';
+    v.waitButtons=[{label:'Neue Aufgabe',fill:'rgba(0,140,60,0.9)',onTap:mk('KeyJ','j')},{label:'Schließen',fill:'rgba(150,40,40,0.9)',onTap:mk('KeyN','n')}];
+  } else if(q.phase==='tryagain'){
+    v.feedback='✗ Richtige Antwort: '+q.answer; v.subText='Nochmal Kronen sammeln?';
+    v.waitButtons=[{label:'Neue Aufgabe',fill:'rgba(0,140,60,0.9)',onTap:mk('KeyJ','j')},{label:'Schließen',fill:'rgba(150,40,40,0.9)',onTap:mk('KeyN','n')}];
+  } else if(q.phase==='wrong1'){
+    v.feedback='✗ Falsch! Versuch es nochmal!';
+    v.waitButtons=[{label:'Nochmal',fill:'rgba(0,140,60,0.9)',onTap:mk('Enter','Enter')},{label:'Aufgeben',fill:'rgba(150,40,40,0.9)',onTap:mk('KeyN','n')}];
   }
-
-  if(q.phase==='tryagain'){
-    ctx.fillStyle='#f88'; ctx.font='bold 18px Courier New';
-    ctx.fillText(`✗ Richtige Antwort: ${q.answer}`,W/2,dy+65);
-    ctx.fillStyle='#fff'; ctx.font='16px Courier New';
-    ctx.fillText('Nochmal Kronen sammeln?',W/2,dy+100);
-    drawQuizBtn(dx+30,dy+130,180,40,'J – Neue Aufgabe','#1a6a1a','#8f8');
-    drawQuizBtn(dx+dw-210,dy+130,180,40,'N – Schließen','#6a1a1a','#f88');
-    return;
-  }
-
-  if(q.phase==='wrong1'){
-    ctx.fillStyle='#fa0'; ctx.font='bold 18px Courier New';
-    ctx.fillText('✗ Falsch! Versuch es nochmal!',W/2,dy+65);
-    ctx.fillStyle='#fff'; ctx.font='14px Courier New';
-    ctx.fillText('ENTER – Nochmal versuchen  |  N – Aufgeben',W/2,dy+100);
-    return;
-  }
-
-  // phase === 'input'
-  ctx.fillStyle='#fff'; ctx.font='bold 24px Courier New';
-  ctx.fillText(q.question, W/2, dy+70);
-
-  // Input field
-  const iw=120, ix=W/2-iw/2, iy=dy+90;
-  ctx.fillStyle='rgba(255,255,255,0.1)'; ctx.strokeStyle='#4af'; ctx.lineWidth=2;
-  ctx.beginPath(); ctx.roundRect(ix,iy,iw,44,8); ctx.fill(); ctx.stroke();
-  ctx.fillStyle='#fff'; ctx.font='bold 28px Courier New';
-  ctx.fillText(q.userInput || '_', W/2, iy+32);
-
-  ctx.fillStyle='#aaa'; ctx.font='13px Courier New';
-  ctx.fillText('Ziffern tippen → ENTER bestätigen  |  ESC abbrechen',W/2,dy+dh-10);
-
-  if(q.attempts>0){
-    ctx.fillStyle='#fa0'; ctx.font='13px Courier New';
-    ctx.fillText('Noch 1 Versuch!',W/2,dy+82+44);
-  }
+  drawPopup(v);
 }
 
 function drawQuizBtn(x,y,w,h,label,bg,border){
@@ -3644,6 +3612,12 @@ function getKioskLayout(){
 }
 function renderKiosk(){
   if(!kioskOpen) return;
+  const KL0=getKioskLayout();
+  uiBegin('kiosk', uiFitK(KL0.dw+20, KL0.dh+60), W/2, H/2);
+  renderKioskInner();
+  uiEnd();
+}
+function renderKioskInner(){
   const KL=getKioskLayout();
   const {dw,dh,dx,dy}=KL;
 
@@ -3837,6 +3811,13 @@ function drawCoinPickups(){
 
 // ─── SAVE / LOAD MENU ─────────────────────────────────────────────
 function renderSaveMenu(){
+  ctx.fillStyle='#000814'; ctx.fillRect(0,0,W,H); drawStars(0.4);
+  const L0=getSaveMenuLayout();
+  uiBegin('save', L0.k, W/2, H/2);
+  renderSaveMenuInner();
+  uiEnd();
+}
+function renderSaveMenuInner(){
   ctx.fillStyle='#000814'; ctx.fillRect(0,0,W,H);
   drawStars(0.4);
 
@@ -4459,6 +4440,7 @@ function finishFinalExam(){
 }
 
 function handleFinalExamKey(code,key){
+  if(finalExam && finalExam.done && !finalExam.passed && code==='Enter'){ finalExam=null; gs=S.SURFACE; startFinalExam(); return; }
   if(!finalExam||finalExam.done) return;
   const q=finalExam.questions[finalExam.current];
   if(q.type==='mc'){
@@ -5524,8 +5506,31 @@ function setPopupScale(v){
   POPUP_SCALE=Math.max(40,Math.min(250,+v||100));
   try{ localStorage.setItem('se_popup_scale', String(POPUP_SCALE)); }catch(e){}
   const l=document.getElementById('cfgPopupScaleVal'); if(l) l.textContent=POPUP_SCALE+' %';
+  uiHtmlZoomLast=-1;
 }
 function popupBaseScale(){ return Math.min(W/680, H/560, 2.2) * POPUP_SCALE/100; }
+// Scale for "classic" windows that were designed at ~1x pixel size
+function uiAutoK(){ return Math.max(1, Math.min(W/680, H/560, 2.2)) * POPUP_SCALE/100; }
+function uiFitK(bw, bh){ return Math.max(0.35, Math.min(uiAutoK(), (W-20)/bw, (H-20)/bh)); }
+const UI_XF = {};
+function uiBegin(key, k, cx, cy){ UI_XF[key]={k,cx,cy}; ctx.save(); ctx.translate(cx,cy); ctx.scale(k,k); ctx.translate(-cx,-cy); }
+function uiEnd(){ ctx.restore(); }
+function uiInv(key, x, y){ const t=UI_XF[key]; if(!t) return {x,y}; return { x:(x-t.cx)/t.k+t.cx, y:(y-t.cy)/t.k+t.cy }; }
+function uiEvent(e, key){ const q=uiInv(key, e.clientX, e.clientY); return { clientX:q.x, clientY:q.y, target:e.target, preventDefault(){}, stopPropagation(){} }; }
+function uiKeyForState(){
+  if(gs===S.LOADMENU||gs===S.SAVEMENU) return 'save';
+  if(gs===S.MODE_SELECT) return 'mode';
+  if(gs===S.SAGA_NEW_LOAD) return 'newload';
+  if(gs===S.MENU) return 'menu';
+  return null;
+}
+// HTML overlays (Name eintragen, Admin-PIN) follow the same size setting
+let uiHtmlZoomLast = -1;
+function updateHtmlUiZoom(){
+  const z=Math.round(uiFitK(600, 420)*100)/100;
+  if(z===uiHtmlZoomLast) return; uiHtmlZoomLast=z;
+  document.documentElement.style.setProperty('--ui-zoom', z);
+}
 
 const POPUP_THEMES = {
   ruby:   { bg1:'#200010', bg2:'#500030', panel:'rgba(20,0,10,0.96)', border:'#ff2244', accent:'#ff6688',
@@ -5627,6 +5632,19 @@ function drawPopup(v){
       ctx.font=sf; ctx.fillStyle='#ccc';
       gateWrap(v.subText, dw-60*k, sf).forEach(l=>{ ctx.fillText(l, W/2, y); y+=28*k; });
     }
+    if(v.waitButtons){
+      const n=v.waitButtons.length, bw=Math.min(300*k,(dw-2*pad-(n-1)*16*k)/n), tot=n*bw+(n-1)*16*k;
+      v.waitButtons.forEach((wb,i)=>{
+        const b={x:W/2-tot/2+i*(bw+16*k), y:y+6*k, w:bw, h:64*k};
+        ctx.fillStyle=wb.fill; ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,14*k); ctx.fill();
+        ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(24*k)}px Courier New`; ctx.textAlign='center';
+        ctx.fillText(wb.label, b.x+b.w/2, b.y+b.h*0.64);
+        v._hits.push({type:'wbtn', fn:wb.onTap, ...b});
+      });
+      ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font=`${Math.round(16*k)}px Courier New`;
+      ctx.fillText('Antippen  oder  J / N', W/2, dy+dh-pad);
+      return;
+    }
     const nb={x:W/2-170*k, y:y+6*k, w:340*k, h:64*k};
     ctx.fillStyle='rgba(0,140,60,0.9)';
     ctx.beginPath(); ctx.roundRect(nb.x,nb.y,nb.w,nb.h,14*k); ctx.fill();
@@ -5699,7 +5717,7 @@ function drawPopup(v){
         ctx.fillStyle=isOk?(okEnabled?'rgba(0,150,60,0.95)':'rgba(70,70,70,0.6)'):isDel?'rgba(150,60,40,0.85)':T.unsel;
         ctx.strokeStyle=isOk||isDel?'transparent':T.accent; ctx.lineWidth=1.5*k;
         ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,12*k); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round((isOk||isDel?26:32)*k)}px Courier New`;
+        ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round((isDel?21:isOk?26:32)*k)}px Courier New`;
         ctx.fillText(isOk?'✓ OK':isDel?'⌫ Löschen':n, b.x+b.w/2, b.y+b.h*0.66);
         if(!isOk || okEnabled) v._hits.push({type:isOk?'ok':isDel?'del':'digit', n, ...b});
         x+=widths[ci]+gap;
@@ -5726,6 +5744,7 @@ function handlePopupTap(cx, cy){
   switch(h.type){
     case 'abort':  v.onAbort && v.onAbort(); break;
     case 'next':   v.onNext(); break;
+    case 'wbtn':   h.fn && h.fn(); break;
     case 'choice':
       if(v.selectedMC===h.i) v.onConfirm(h.i);
       else { v.onSelect(h.i); playFX(520,0.05,'sine',0.1); }
@@ -6959,6 +6978,12 @@ function updateModeSelect(){
 }
 
 function renderModeSelect(){
+  ctx.fillStyle='#02021a'; ctx.fillRect(0,0,W,H); drawStars();
+  uiBegin('mode', uiFitK(780, 360), W/2, H/2);
+  renderModeSelectInner();
+  uiEnd();
+}
+function renderModeSelectInner(){
   // Background
   const bg=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H));
   bg.addColorStop(0,'#04042a'); bg.addColorStop(1,'#000010');
@@ -6968,7 +6993,7 @@ function renderModeSelect(){
   ctx.textAlign='center';
   ctx.fillStyle='#fff'; ctx.font=`bold ${Math.min(W*0.05,40)}px Courier New`;
   ctx.shadowColor='#4af'; ctx.shadowBlur=20;
-  ctx.fillText('SPIELMODUS WÄHLEN',W/2,H/2-130);
+  ctx.fillText('SPIELMODUS WÄHLEN',W/2,H/2-150);
   ctx.shadowBlur=0;
 
   const modes=[
@@ -7044,6 +7069,12 @@ function updateSagaNewLoad(){
 }
 
 function renderSagaNewLoad(){
+  ctx.fillStyle='#02021a'; ctx.fillRect(0,0,W,H); drawStars();
+  uiBegin('newload', uiFitK(780, 400), W/2, H/2);
+  renderSagaNewLoadInner();
+  uiEnd();
+}
+function renderSagaNewLoadInner(){
   const bg=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H));
   bg.addColorStop(0,'#04042a'); bg.addColorStop(1,'#000010');
   ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
@@ -7189,8 +7220,9 @@ function renderCutscene(){
   ctx.fillText('ESC: Überspringen', W-12, H*0.05);
 
   // Dialogue panel at bottom
-  const panelY=H*0.65;
-  const panelH=H*0.22;
+  const ck=Math.max(1, Math.min(W/1000, H/650, 2)) * POPUP_SCALE/100;
+  const panelH=Math.min(H*0.42, Math.max(H*0.22, 150*ck));
+  const panelY=H*0.9-panelH;
   ctx.globalAlpha=fadeIn;
   const isHero=line.speaker.includes('Luna')||line.speaker.includes('Astronaut');
   const isSystem=line.speaker.includes('SAM')||line.speaker.includes('System');
@@ -7208,7 +7240,7 @@ function renderCutscene(){
   // Portrait circle (left for hero, right for commander)
   const portX=isHero?W*0.18:W*0.82;
   const portY=panelY+panelH/2+panelBob;
-  const portR=Math.min(W*0.05,55);
+  const portR=Math.min(W*0.07, 50*ck, panelH*0.4);
   // Pulsing portrait glow
   const pulseR=portR+12+Math.sin(t*0.1)*3;
   const portGlow=ctx.createRadialGradient(portX,portY,portR,portX,portY,pulseR);
@@ -7221,7 +7253,7 @@ function renderCutscene(){
   ctx.strokeStyle=borderColor; ctx.lineWidth=3;
   ctx.beginPath(); ctx.arc(portX,portY,portR,0,Math.PI*2); ctx.stroke();
   // Big emoji portrait with slight bounce
-  const emojiSize=Math.min(W*0.06,58)+Math.sin(t*0.12)*2;
+  const emojiSize=portR*1.1+Math.sin(t*0.12)*2;
   ctx.font=`${emojiSize}px Arial`; ctx.textAlign='center';
   ctx.fillText(line.portrait||'💬',portX,portY+emojiSize*0.35);
 
@@ -7229,8 +7261,8 @@ function renderCutscene(){
   const nameX=isHero?portX+portR+15:portX-portR-15;
   const nameAlign=isHero?'left':'right';
   ctx.textAlign=nameAlign;
-  ctx.fillStyle=borderColor; ctx.font='bold 15px Courier New';
-  ctx.fillText(line.speaker.toUpperCase(), nameX, panelY+30);
+  ctx.fillStyle=borderColor; ctx.font=`bold ${Math.round(15*ck)}px Courier New`;
+  ctx.fillText(line.speaker.toUpperCase(), nameX, panelY+30*ck);
 
   // Typewriter text
   const typeSpeed=1.2;
@@ -7238,9 +7270,9 @@ function renderCutscene(){
   const displayText=line.text.slice(0,maxChars);
 
   // Word-wrap the text
-  ctx.fillStyle='#fff'; ctx.font=`${Math.min(W*0.022,17)}px Courier New`;
+  ctx.fillStyle='#fff'; ctx.font=`${Math.round(17*ck)}px Courier New`;
   ctx.textAlign='center';
-  const txtX=W/2, txtMaxW=W*0.6;
+  const txtX=W/2, txtMaxW=Math.max(200, W*0.64-2*portR-40);
   const words=displayText.split(' ');
   let lineBuf='', lineRows=[];
   for(const w of words){
@@ -7249,7 +7281,7 @@ function renderCutscene(){
     else lineBuf=test;
   }
   if(lineBuf.trim()) lineRows.push(lineBuf.trim());
-  const lineH=Math.min(W*0.028,24);
+  const lineH=24*ck;
   const startY=panelY+panelH/2+panelBob-(lineRows.length-1)*lineH/2;
   lineRows.forEach((r,ri)=>ctx.fillText(r,txtX,startY+ri*lineH));
 
@@ -7257,7 +7289,7 @@ function renderCutscene(){
   if(maxChars>=line.text.length){
     const blink=Math.floor(t/20)%2===0;
     if(blink){
-      ctx.fillStyle=borderColor; ctx.font='bold 13px Courier New';
+      ctx.fillStyle=borderColor; ctx.font=`bold ${Math.round(13*ck)}px Courier New`;
       const lastIdx=sc.current===sc.lines.length-1;
       ctx.fillText(lastIdx?'▼ ENTER: Los geht\'s! ▼':'▼ ENTER: Weiter ▼', W/2, panelY+panelH-14+panelBob);
     }
@@ -7389,6 +7421,16 @@ try { ttsEnabled = localStorage.getItem('se_tts') !== '0'; } catch(e) {}
 
 // ─── MENU ────────────────────────────────────────────────────────
 function renderMenu(){
+  const bg0=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H));
+  bg0.addColorStop(0,'#04042a'); bg0.addColorStop(1,'#000010');
+  ctx.fillStyle=bg0; ctx.fillRect(0,0,W,H);
+  uiBegin('menu', uiFitK(720, 560), W/2, H/2);
+  renderMenuInner();
+  uiEnd();
+  ctx.textAlign='center'; ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.font='13px Courier New';
+  ctx.fillText('↑ Schub  |  ← → Steuern  |  W Wasser  |  S Schild  |  A Aus-/Einsteigen  |  SPACE Springen',W/2,H-14);
+}
+function renderMenuInner(){
   const bg=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H));
   bg.addColorStop(0,'#04042a'); bg.addColorStop(1,'#000010');
   ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
@@ -7439,8 +7481,6 @@ function renderMenu(){
   ctx.fillStyle='#fff'; ctx.font='bold 12px Courier New'; ctx.textAlign='center';
   ctx.fillText('🔊 Saga-Sprachausgabe: '+(ttsEnabled?'EIN':'AUS'), tt.x+tt.w/2, tt.y+19);
 
-  ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.font='13px Courier New';
-  ctx.fillText('↑ Schub  |  ← → Steuern  |  W Wasser  |  S Schild  |  A Aus-/Einsteigen  |  SPACE Springen',W/2,H-14);
 }
 
 let menuHover='';
@@ -7457,6 +7497,7 @@ canvas.addEventListener('wheel', e=>{
   clampSaveScroll(saves.length);
 },{passive:false});
 canvas.addEventListener('click', e=>{
+  { const uk=uiKeyForState(); if(uk) e=uiEvent(e,uk); }
   { const r=canvas.getBoundingClientRect(); if(handleMissileTap((e.clientX-r.left)*(W/r.width),(e.clientY-r.top)*(H/r.height))) return; }
   { const r=canvas.getBoundingClientRect();
     const cx=(e.clientX-r.left)*(W/r.width), cy=(e.clientY-r.top)*(H/r.height);
@@ -7491,7 +7532,8 @@ canvas.addEventListener('click', e=>{
   // Kiosk mouse clicks (tabs + buy button)
   if(kioskOpen && gs===S.SURFACE){
     const r=canvas.getBoundingClientRect();
-    const mx=(e.clientX-r.left)*(W/r.width), my=(e.clientY-r.top)*(H/r.height);
+    const kp=uiInv('kiosk',(e.clientX-r.left)*(W/r.width),(e.clientY-r.top)*(H/r.height));
+    const mx=kp.x, my=kp.y;
     const KL=getKioskLayout();
     const t=KL.tabs.find(t=>mx>=t.x&&mx<=t.x+t.w&&my>=t.y&&my<=t.y+t.h);
     if(t){ kioskTab=t.key; return; }
@@ -7520,20 +7562,12 @@ canvas.addEventListener('click', e=>{
     }
     return;
   }
-  // Math quiz mouse clicks
-  if(mathQuiz && (gs===S.SURFACE)){
-    const dw=460,dh=200,dx=W/2-dw/2,dy=H/2-dh/2;
-    const q=mathQuiz;
-    if((q.phase==='correct'||q.phase==='tryagain')&&e.clientY>=dy+130&&e.clientY<=dy+170){
-      if(e.clientX>=dx+30&&e.clientX<=dx+210){ handleMathKey('KeyJ','j'); return; }
-      if(e.clientX>=dx+dw-210&&e.clientX<=dx+dw-30){ handleMathKey('KeyN','n'); return; }
-    }
-  }
 
 });
 
 canvas.addEventListener('mousemove', e=>{
   if(gs!==S.MENU) return;
+  e=uiEvent(e,'menu');
   const bw=220,bh=46,mx=W/2-bw/2;
   const btns=[{action:'play',y:H/2-60},{action:'load',y:H/2-2},{action:'board',y:H/2+56},{action:'admin',y:H/2+114}];
   menuHover='';
@@ -7542,6 +7576,7 @@ canvas.addEventListener('mousemove', e=>{
   }
 });
 canvas.addEventListener('click', e=>{
+  { const uk=uiKeyForState(); if(uk) e=uiEvent(e,uk); }
   // Handle mode-select clicks
   if(gs===S.MODE_SELECT){
     const arcX=W/2-Math.min(W*0.22,200), sagX=W/2+Math.min(W*0.22,200);
@@ -7647,11 +7682,12 @@ function renderSpace(){
     const ng=ctx.createRadialGradient(nx,ny,0,nx,ny,120);
     ng.addColorStop(0,['rgba(100,50,200,0.06)','rgba(50,100,200,0.06)','rgba(200,50,100,0.05)'][i]);
     ng.addColorStop(1,'transparent');
-    ctx.fillStyle=ng; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle=ng; ctx.fillRect(nx-120,ny-120,240,240);
   }
   // Planets — in saga mode only show unlocked ones
+  const sagaLocked = gameMode==='saga' ? getSagaLockedPlanets() : [];
   for(const sp of SPACE_PLANETS){
-    if(gameMode==='saga' && getSagaLockedPlanets().includes(sp.id)) continue;
+    if(sagaLocked.includes(sp.id)) continue;
     if(sp.id==='gold' && diamonds<GOLD_PLANET_COST && gameMode!=='saga') {
       // In arcade, gold shows as locked but visible. In saga, hidden unless unlocked.
     }
@@ -7746,9 +7782,9 @@ function renderSpace(){
         ctx.fillText('▼ Landung...',px,py-sp.r-26);
       }
     }
-    ctx.save(); ctx.shadowColor=pd.color; ctx.shadowBlur=10;
-    ctx.fillStyle='#ddeeff'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
-    ctx.fillText(pd.name,px,py+sp.r+22); ctx.restore();
+    ctx.font='bold 13px Courier New'; ctx.textAlign='center';
+    ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,20,0.85)'; ctx.strokeText(pd.name,px,py+sp.r+22);
+    ctx.fillStyle='#ddeeff'; ctx.fillText(pd.name,px,py+sp.r+22);
   }
   drawSpaceRocket(ship.x,ship.y,ship.angle,keys['ArrowUp']);
   drawHUD();
@@ -8221,6 +8257,15 @@ function renderGameOver(){
 
 // ─── LEADERBOARD ─────────────────────────────────────────────────
 function renderBoard(){
+  ctx.fillStyle='#000010'; ctx.fillRect(0,0,W,H); drawStars(0.5);
+  const k=Math.max(0.35, Math.min(uiAutoK(), (W-20)/600, (H-50)/580));
+  uiBegin('board', k, W/2, 0);
+  renderBoardInner();
+  uiEnd();
+  ctx.textAlign='center'; ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='16px Courier New';
+  ctx.fillText('ENTER / SPACE → Menü',W/2,H-24);
+}
+function renderBoardInner(){
   goShown=false;
   ctx.fillStyle='#000010'; ctx.fillRect(0,0,W,H);
   drawStars(0.5);
@@ -8237,18 +8282,25 @@ function renderBoard(){
     ctx.fillText(`${i<3?medals[i]:(i+1)+'.'} ${e.name.padEnd(12)} Lv.${String(e.level).padStart(3)} 👑${e.crowns}`,W/2,y);
   });
   if(!top.length){ ctx.fillStyle='#556'; ctx.font='20px Courier New'; ctx.fillText('Noch keine Einträge',W/2,200); }
-  ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='16px Courier New';
-  ctx.fillText('ENTER / SPACE → Menü',W/2,H-30);
 }
 
 // ═══════════════════════════════════════════════════════════════════
 //  GAME LOOP
 // ═══════════════════════════════════════════════════════════════════
 let prevGs=gs;
-function loop(){
+const STEP_MS = 1000/60;           // game logic always runs at 60 updates per second
+let loopLast = 0, loopAcc = 0;
+function loop(now){
   if(gs===S.GAMEOVER&&prevGs!==S.GAMEOVER) goShown=false;
   prevGs=gs;
-  update(); render();
+  if(typeof now!=='number') now=performance.now();
+  if(!loopLast) loopLast=now;
+  loopAcc += Math.min(250, now-loopLast);   // clamp after tab switches
+  loopLast = now;
+  let steps=0;
+  while(loopAcc>=STEP_MS && steps<4){ update(); loopAcc-=STEP_MS; steps++; }
+  if(steps===4) loopAcc=0;                  // device too slow: don't spiral
+  render();
   requestAnimationFrame(loop);
 }
 
@@ -8263,8 +8315,7 @@ document.addEventListener('keydown', firstInteraction);
 
 // Wrap loop in try/catch so errors don't silently kill the game
 function safeLoop() {
-  try { loop(); } catch(e) { console.error('Game loop error:', e); requestAnimationFrame(safeLoop);
-initTouchControls(); }
+  try { loop(); } catch(e) { console.error('Game loop error:', e); requestAnimationFrame(safeLoop); }
 }
 requestAnimationFrame(safeLoop);
 initTouchControls();
@@ -8457,7 +8508,7 @@ function handleCanvasTap(e) {
   const y = (touch.clientY - rect.top)  * scaleY;
 
   // Simulate a mouse click for menu/dialog/kiosk
-  if (gs === S.MENU || gs === S.BOARD || gs === S.SAVEMENU || gs === S.LOADMENU) {
+  if (gs === S.MENU || gs === S.BOARD || gs === S.SAVEMENU || gs === S.LOADMENU || gs === S.MODE_SELECT || gs === S.SAGA_NEW_LOAD) {
     canvas.dispatchEvent(new MouseEvent('click', {
       clientX: touch.clientX, clientY: touch.clientY, bubbles: true
     }));
@@ -8484,7 +8535,7 @@ function updateTouchUI() {
 
   // ── Numpad for math quiz ──────────────────────────────────────
   const numpad = document.getElementById('tMathInput');
-  const showNumpad = mathQuiz && mathQuiz.phase === 'input';
+  const showNumpad = false; // replaced by the big on-screen number pad
   numpad.classList.toggle('active', !!showNumpad);
   if (showNumpad) updateMathNumpad();
 
@@ -8653,7 +8704,7 @@ function handleGameAreaTap(x, y) {
   if (!dialog && handlePopupTap(cx, cy)) return;
 
   // Menu / board / save screens
-  if (gs === S.MENU || gs === S.BOARD || gs === S.SAVEMENU || gs === S.LOADMENU) {
+  if (gs === S.MENU || gs === S.BOARD || gs === S.SAVEMENU || gs === S.LOADMENU || gs === S.MODE_SELECT || gs === S.SAGA_NEW_LOAD) {
     canvas.dispatchEvent(new MouseEvent('click', { clientX:x, clientY:y, bubbles:true }));
     return;
   }
