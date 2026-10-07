@@ -206,8 +206,12 @@ input[type=color] { width:46px; height:30px; border:none; border-radius:6px; cur
         </div>
       </div>
       <div style="margin-top:14px;padding:10px;border:1px solid #543;border-radius:8px;background:rgba(160,120,0,0.10)">
-        <label style="color:#fd6;font-size:13px;cursor:pointer"><input type="checkbox" id="cfgTestGold" onchange="setTestGold(this.checked)"> 🧪 Testmodus: ✨ Gold-Modus ohne Rubine verfügbar</label>
-        <p style="color:#887;font-size:11px;margin-top:4px">Zum Ausprobieren. Im Spiel kostet der Gold-Modus 10 🔴 (Kiosk → ✨ Gold [0]). Wird auf diesem Gerät gespeichert.</p>
+        <label style="color:#fd6;font-size:13px">🧪 Testmodus ✨ Gold-Modus (ohne Rubine):
+          <select id="cfgTestGold" onchange="setTestGold(+this.value)" style="background:#1a1a3a;color:#fff;border:1px solid #fd6;border-radius:4px;padding:2px 6px;font-family:monospace">
+            <option value="0">Aus</option><option value="1">Stufe 1 – Gold-Schild + Goldschüsse</option>
+            <option value="2">Stufe 2 – + Schweben + Schallwellen</option><option value="3">Stufe 3 – + Laser + Einfrieren</option>
+          </select></label>
+        <p style="color:#887;font-size:11px;margin-top:4px">Zum Ausprobieren. Im Spiel kosten die Stufen 10 / 60 / 120 🔴 (Kiosk → ✨ Gold [0]). Wird auf diesem Gerät gespeichert.</p>
       </div>
       <div style="margin-top:14px;padding:10px;border:1px solid #234;border-radius:8px;background:rgba(0,80,160,0.08)">
         <label style="color:#aaa;font-size:12px">🔍 Größe der Fragefenster &amp; Dialoge:
@@ -850,11 +854,14 @@ let splashShowModeSelect = false;  // show 1P/2P choice before game
 const RUBY_VALUE = 200;       // diamonds per ruby exchange
 const RUBY_CROWNS = 500;      // crowns per ruby (Rubin = wertvollste Währung)
 // ── GOLD-MODUS: goldenes Schutzschild (360°, 3× so stark) + verstärkte Schüsse mit Goldschweif ──
-const GOLD_MODE_COST = 10;    // Rubine
-let goldModeUnlocked = false, goldModeOn = true;
-let TEST_GOLD = false; try{ TEST_GOLD = localStorage.getItem('se_test_gold')==='1'; }catch(e){}
-function goldActive(){ return (goldModeUnlocked || TEST_GOLD) && goldModeOn; }
-function setTestGold(on){ TEST_GOLD=!!on; if(on) goldModeOn=true; try{ localStorage.setItem('se_test_gold', on?'1':'0'); }catch(e){} }
+// Stufe 1: Gold-Schild + Goldschüsse · Stufe 2: + unendlich Schweben + Schallwellen (50) · Stufe 3: + Laser (80) + Eis-Raketen frieren 10 s ein
+const GOLD_COSTS = [0, 10, 60, 120];   // Rubine für Stufe 1, 2, 3
+let goldLevel = 0, goldModeOn = true;
+let goldModeUnlocked = false;           // (alt, nur noch für ältere Spielstände)
+let TEST_GOLD = 0; try{ TEST_GOLD = Math.max(0,Math.min(3, +localStorage.getItem('se_test_gold')||0)); }catch(e){}
+function goldLvl(){ return goldModeOn ? Math.max(goldLevel, TEST_GOLD) : 0; }
+function goldActive(){ return goldLvl()>=1; }
+function setTestGold(lv){ TEST_GOLD=Math.max(0,Math.min(3,+lv||0)); if(TEST_GOLD) goldModeOn=true; try{ localStorage.setItem('se_test_gold', String(TEST_GOLD)); }catch(e){} }
 let exchangeOpen = false, exchangeHits = [], exchangeMsg = '', exchangeMsgCol = '#8f8';
 let EXCHANGE_CROWNS = 20;     // crowns per exchange (admin-configurable)
 let EXCHANGE_DIAMONDS = 10;   // diamonds given per exchange (admin-configurable)
@@ -1079,7 +1086,7 @@ function saveGame(slotName) {
   const entry = {
     name:         slotName.trim() || 'Spielstand',
     date:         new Date().toLocaleString('de-DE'),
-    level, lives, crowns, diamonds, rubies, splashStars, iceMissiles, goldModeUnlocked, goldModeOn, bossWins:{...bossWins}, iceMultiLevel, backpackLevel, jetpackLevel,
+    level, lives, crowns, diamonds, rubies, splashStars, iceMissiles, goldLevel, goldModeOn, bossWins:{...bossWins}, iceMultiLevel, backpackLevel, jetpackLevel,
     gameMode, sagaChapter, sagaUnlocked: {...sagaUnlocked},
     splashPlanetUnlocked,
     currentPlanet,
@@ -1113,7 +1120,7 @@ function loadGame(entry) {
   diamonds              = entry.diamonds              ?? 0;
   rubies                = entry.rubies                ?? 0;
   iceMissiles           = entry.iceMissiles           ?? 0;
-  goldModeUnlocked      = entry.goldModeUnlocked      ?? false;
+  goldLevel             = entry.goldLevel ?? (entry.goldModeUnlocked ? 1 : 0);
   goldModeOn            = entry.goldModeOn            ?? true;
   bossWins              = {...(entry.bossWins||{})};
   iceMultiLevel         = entry.iceMultiLevel         ?? 0;
@@ -1201,7 +1208,7 @@ function openLoadMenu() {
 //  GAME SETUP
 // ═══════════════════════════════════════════════════════════════════
 function startGame(){
-  level=1; lives=3; crowns=0; diamonds=0; iceMissiles=0; goldModeUnlocked=false; goldModeOn=true; bossWins={}; iceMultiLevel=0; backpackLevel=0; jetpackLevel=0; jetpackAuto=false; shieldHP=100; shieldBroken=false; shieldBlocked=0;
+  level=1; lives=3; crowns=0; diamonds=0; iceMissiles=0; goldModeUnlocked=false; goldLevel=0; goldModeOn=true; bossWins={}; iceMultiLevel=0; backpackLevel=0; jetpackLevel=0; jetpackAuto=false; shieldHP=100; shieldBroken=false; shieldBlocked=0;
   diamondWeaponLevel=0; diamondShieldLevel=0; diamondRocketLevel=0; subjectQuestsDone={};
   rubies=0;
   diamondPlanetBossUnlocked=false; goldPlanetUnlocked=false;
@@ -2252,7 +2259,7 @@ function startBossFight(){
 function goldProjectileTick(){
   if(!goldActive() || !pProjectiles.length) return;
   for(const p of pProjectiles){
-    if(!p._gold){ p._gold=true; p.gtrail=[]; p.power=Math.ceil((p.power||1)*1.5); }
+    if(!p._gold){ p._gold=true; p.gtrail=[]; if(!p.goldFx) p.power=Math.ceil((p.power||1)*1.5); }
     p.gtrail.push({x:p.x,y:p.y}); if(p.gtrail.length>12) p.gtrail.shift();
   }
 }
@@ -2262,7 +2269,7 @@ function drawGoldTrails(){
   ctx.save();
   if(world) ctx.translate(-camX,0);
   for(const p of pProjectiles){
-    if(!p._gold || !p.gtrail) continue;
+    if(!p._gold || !p.gtrail || p.wave || p.laser) continue;
     const n=p.gtrail.length;
     p.gtrail.forEach((tp,i)=>{
       const a=(i+1)/n;
@@ -2274,6 +2281,142 @@ function drawGoldTrails(){
     ctx.shadowBlur=0;
   }
   ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  GOLD-MODUS STUFE 2 + 3
+// ═══════════════════════════════════════════════════════════════════
+let goldWaveTimer = 0, goldLaserTimer = 0, goldTracked = [];
+const FREEZE_FRAMES = 600;   // 10 Sekunden
+function goldShieldUp(){ return keys['KeyS'] && !shieldBroken && goldActive(); }
+function goldTargets(){
+  // alle Ziele im aktuellen Kampf (für Einfrieren und Laser)
+  const out=[]; const add=o=>{ if(o && !o.dead) out.push(o); };
+  if(gs===S.BOSS) add(boss); else if(gs===S.DIAMOND_BOSS) add(diamondBoss); else if(gs===S.GOLD_BOSS) add(goldBossData);
+  else if(gs===S.RUBY_BOSS){ rubyEggs.forEach(add); add(rubyBoss); }
+  else if(gs===S.SPLASH_BOSS){ splashBirds.forEach(add); add(splashBoss); }
+  return out;
+}
+function goldExplosion(x,y,big){
+  for(let j=0;j<(big?26:18);j++){ const a=Math.random()*Math.PI*2, s=2+Math.random()*(big?6:4);
+    hitFX.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:28+Math.random()*14,color:j%3?'#ffd700':'#fff3b0'}); }
+  playFX(120,0.25,'sawtooth',0.15);
+}
+function goldHoverTick(){
+  // Stufe 2: unendlich schweben in Monsterplanet-, Diamant- und Goldboss (Rubin/Eis nutzen das Jetpack ohne Verbrauch)
+  const floorY=H-80;
+  if(jetpackAuto){
+    if(keys['ArrowUp'])   jetpackAlt=Math.min(floorY-60, jetpackAlt+4);
+    if(keys['ArrowDown']) jetpackAlt=Math.max(0, jetpackAlt-4);
+    const ty=floorY-jetpackAlt-hero.h;
+    hero.y+=(ty-hero.y)*0.2; hero.vy=-0.5;   // hebt die Schwerkraft im Kampf-Update auf
+  } else if(keys['ArrowUp']||keys['Space']){
+    hero.y=Math.max(0,hero.y-5); hero.vy=-0.5;
+  }
+  if(hero.y+hero.h<floorY-2) hero.onGround=false;
+  if(frame%5===0) hitFX.push({x:hero.x+hero.w/2+(Math.random()-.5)*10,y:hero.y+hero.h,vx:(Math.random()-.5),vy:1.5,life:16,color:'#ffd700'});
+}
+function goldPowersTick(){
+  const lv=goldLvl();
+  if(lv>=2 && (gs===S.BOSS||gs===S.DIAMOND_BOSS||gs===S.GOLD_BOSS)){ if(justDown['KeyJ']) toggleJetpackAuto(); goldHoverTick(); }
+  if(lv>=2 && (gs===S.RUBY_BOSS||gs===S.SPLASH_BOSS)) jetpackFuel=jpMaxFuel();   // Jetpack ohne Verbrauch
+  // Schallwellen (Stufe 2) und Laser (Stufe 3) aus dem Gold-Schild
+  if(lv>=2 && goldShieldUp()){
+    const cx=hero.x+hero.w/2, cy=hero.y+hero.h/2;
+    if(--goldWaveTimer<=0){
+      goldWaveTimer=40;
+      const t=getMissileTarget(cx,cy,0);
+      const a=t?Math.atan2(t.y-cy,t.x-cx):(hero.facing>0?0:Math.PI);
+      pProjectiles.push({x:cx,y:cy,vx:Math.cos(a)*8,vy:Math.sin(a)*8,life:140,r:18,power:50,goldFx:true,wave:true,ang:a,_gold:true,gtrail:[]});
+      playFX(220,0.12,'sine',0.12);
+    }
+    if(lv>=3 && --goldLaserTimer<=0){
+      goldLaserTimer=30;
+      const ts=goldTargets(); const t=ts.length?ts[Math.floor(Math.random()*ts.length)]:null;
+      const tx=t?t.x+t.w/2:cx+hero.facing*400, ty=t?t.y+t.h/2:cy;
+      const a=Math.atan2(ty-cy,tx-cx);
+      pProjectiles.push({x:cx,y:cy,vx:Math.cos(a)*24,vy:Math.sin(a)*24,life:60,r:7,power:80,goldFx:true,laser:true,ox:cx,oy:cy,_gold:true,gtrail:[]});
+      playFX(1200,0.08,'square',0.08);
+    }
+  }
+  // Treffer erkennen: Schallwelle → Explosion, Eis-Rakete (Stufe 3) → einfrieren
+  const now=new Set(pProjectiles);
+  for(const p of goldTracked){
+    if(now.has(p)) continue;
+    if(p.life>2 && p.x>8 && p.x<W-8 && p.y>8 && p.y<H-8){
+      if(p.wave) goldExplosion(p.x,p.y,true);
+      if(p.missile && lv>=3){
+        const o=goldTargets().sort((a,b)=>Math.hypot(a.x+a.w/2-p.x,a.y+a.h/2-p.y)-Math.hypot(b.x+b.w/2-p.x,b.y+b.h/2-p.y))[0];
+        if(o && Math.hypot(o.x+o.w/2-p.x,o.y+o.h/2-p.y)<Math.max(o.w,o.h)+60){ o.frozen=FREEZE_FRAMES; o.fx=o.x; o.fy=o.y; playFX(1500,0.3,'triangle',0.15); }
+      }
+    }
+  }
+  goldTracked=pProjectiles.filter(p=>p.wave||p.missile);
+  for(const p of goldTracked){ /* Position für Treffererkennung merken */ }
+  // eingefrorene Gegner: keine Bewegung, keine Angriffe
+  for(const o of goldTargets()){
+    if(!(o.frozen>0)) continue;
+    o.frozen--;
+    o.x=o.fx; o.y=o.fy;
+    for(const k in o) if(/Timer$/.test(k) && !['deadTimer','beamTimer','invTimer','hitTimer'].includes(k) && typeof o[k]==='number') o[k]=Math.max(o[k],30);
+    if(o===goldBossData){ o.beamTimer=0; if(typeof gbBeamActive!=='undefined') gbBeamActive=false; }
+  }
+}
+function goldFreezeClamp(){ for(const o of goldTargets()) if(o.frozen>0){ o.x=o.fx; o.y=o.fy; } }
+function drawGoldPowers(){
+  // eingefrorene Gegner
+  for(const o of goldTargets()){
+    if(!(o.frozen>0)) continue;
+    const pad=10, a=0.35+0.1*Math.sin(frame*0.1);
+    ctx.save();
+    const g=ctx.createLinearGradient(o.x,o.y,o.x+o.w,o.y+o.h);
+    g.addColorStop(0,`rgba(200,240,255,${a+0.15})`); g.addColorStop(1,`rgba(90,180,255,${a})`);
+    ctx.fillStyle=g; ctx.strokeStyle='rgba(230,250,255,0.95)'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.roundRect(o.x-pad,o.y-pad,o.w+pad*2,o.h+pad*2,10); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(o.x,o.y+o.h*0.3); ctx.lineTo(o.x+o.w*0.4,o.y); ctx.moveTo(o.x+o.w*0.6,o.y+o.h); ctx.lineTo(o.x+o.w,o.y+o.h*0.6); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='bold 14px Courier New'; ctx.textAlign='center';
+    ctx.fillText(`❄️ ${Math.ceil(o.frozen/60)} s`, o.x+o.w/2, o.y-pad-6);
+    ctx.restore();
+  }
+  // Schallwellen + Laser
+  for(const p of pProjectiles){
+    if(p.wave){
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.ang);
+      for(let i=0;i<3;i++){
+        ctx.strokeStyle=`rgba(255,${200+i*20},${60+i*40},${0.9-i*0.25})`; ctx.lineWidth=4-i;
+        ctx.beginPath(); ctx.arc(-i*9,0,14+i*6,-0.9,0.9); ctx.stroke();
+      }
+      ctx.restore();
+    } else if(p.laser){
+      const hx=hero.x+hero.w/2, hy=hero.y+hero.h/2;
+      ctx.save(); ctx.shadowColor='#ff3'; ctx.shadowBlur=14;
+      ctx.strokeStyle='rgba(255,240,120,0.95)'; ctx.lineWidth=5;
+      ctx.beginPath(); ctx.moveTo(hx,hy); ctx.lineTo(p.x,p.y); ctx.stroke();
+      ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(hx,hy); ctx.lineTo(p.x,p.y); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  // Schweben-Anzeige für Kämpfe ohne Jetpack
+  if(goldLvl()>=2 && (gs===S.BOSS||gs===S.DIAMOND_BOSS||gs===S.GOLD_BOSS)){
+    const b=getJetpackButton();
+    ctx.fillStyle=jetpackAuto?'rgba(170,120,0,0.9)':'rgba(90,70,10,0.85)';
+    ctx.strokeStyle='#ffd700'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,12); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='bold 14px Courier New'; ctx.textAlign='center';
+    ctx.fillText(jetpackAuto?'✨ SCHWEBEN AUTO (J)':'✨ SCHWEBEN MANUELL', b.x+b.w/2, b.y+22);
+    ctx.font='11px Courier New';
+    ctx.fillText(jetpackAuto?'↑↓ = Höhe ändern':'↑/LEERTASTE = steigen', b.x+b.w/2, b.y+40);
+    if(jetpackAuto){
+      const ty=H-80-jetpackAlt;
+      ctx.save(); ctx.setLineDash([8,6]); ctx.strokeStyle='rgba(255,215,0,0.45)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(0,ty); ctx.lineTo(W,ty); ctx.stroke(); ctx.restore();
+    }
+  }
+  if(goldLvl()>=2 && isMissileState() && !keys['KeyS']){
+    ctx.fillStyle='rgba(255,215,0,0.8)'; ctx.font='bold 12px Courier New'; ctx.textAlign='center';
+    ctx.fillText(goldLvl()>=3?'S halten: Gold-Schild mit Schallwellen + Laser':'S halten: Gold-Schild mit Schallwellen', W/2, 92);
+  }
 }
 // ═══════════════════════════════════════════════════════════════════
 //  MONSTER-STUFEN: aggressiver + gruseliger
@@ -2409,7 +2552,7 @@ function drawJetpackHUD(barColor){
   ctx.fillRect(bx,by,bw*pct,12);
   ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1; ctx.strokeRect(bx,by,bw,12);
   ctx.fillStyle='#fff'; ctx.font='bold 12px monospace'; ctx.textAlign='center';
-  ctx.fillText(`🎒 Jetpack ${L.name} · ${Math.floor(pct*100)}% · ${jetpackAuto?'AUTO':'MANUELL'} (J)`, W/2, by-6);
+  ctx.fillText(goldLvl()>=2?`✨ Gold-Schweben · ∞ · ${jetpackAuto?'AUTO':'MANUELL'} (J)`:`🎒 Jetpack ${L.name} · ${Math.floor(pct*100)}% · ${jetpackAuto?'AUTO':'MANUELL'} (J)`, W/2, by-6);
   if(jetpackCharging){
     ctx.fillStyle='#8f8'; ctx.font='bold 13px monospace';
     ctx.fillText('⚡ Lädt auf …', W/2, by-24);
@@ -2526,7 +2669,7 @@ function handleMissileTap(cx,cy){
   if(!isMissileState()) return false;
   const b=getMissileButton();
   if(cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h){ fireIceMissile(); return true; }
-  if(gs===S.RUBY_BOSS||gs===S.SPLASH_BOSS){
+  if(gs===S.RUBY_BOSS||gs===S.SPLASH_BOSS||goldLvl()>=2){
     const j=getJetpackButton();
     if(cx>=j.x&&cx<=j.x+j.w&&cy>=j.y&&cy<=j.y+j.h){ toggleJetpackAuto(); return true; }
   }
@@ -2538,7 +2681,7 @@ function handleMissileTap(cx,cy){
 function update(){
   // Speichern über Touch-Button (setzt justDown KeyP)
   if(justDown['KeyP'] && (gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog){ openSaveMenu(); clearJust(); return; }
-  if(isMissileState()){ if(justDown['KeyR']) fireIceMissile(); steerIceMissiles(); bossAggroTick(); }
+  if(isMissileState()){ if(justDown['KeyR']) fireIceMissile(); steerIceMissiles(); bossAggroTick(); if(goldActive()) goldPowersTick(); }
   goldProjectileTick();
   switch(gs){
     case S.MENU:        updateMenu();        break;
@@ -2816,6 +2959,7 @@ function updateSurface(){
       if(keys['Digit8']||keys['Numpad8']){ kioskTab='hearts'; interactCooldown=20; }
       if(keys['Digit9']||keys['Numpad9']){ kioskTab='jetpack'; interactCooldown=20; }
       if(keys['Digit0']||keys['Numpad0']){ kioskTab='gold'; interactCooldown=20; }
+      if(kioskTab==='gold' && keys['KeyG']){ kioskBuySpecial('goldToggle'); interactCooldown=20; }
       if(kioskTab==='ice' && keys['KeyM']){ kioskBuySpecial('multi'); interactCooldown=20; }
       if(kioskTab==='ice' && keys['KeyU']){ kioskBuySpecial('backpack'); interactCooldown=20; }
       if(keys['Escape']){ kioskOpen=false; interactCooldown=20; }
@@ -3178,7 +3322,7 @@ function updateBoss(){
     p.x+=p.vx; p.y+=p.vy; p.life--;
     if(p.life<=0) return false;
     if(!boss.dead&&circRect(p.x,p.y,p.r,boss.x,boss.y,boss.w,boss.h)){
-      boss.hits += p.missile ? p.power : 1;
+      boss.hits += (p.missile||p.goldFx) ? p.power : 1;
       boss.hp=boss.maxHp-boss.hits;
       for(let j=0;j<5;j++) hitFX.push({x:p.x,y:p.y,vx:(Math.random()-.5)*5,vy:(Math.random()-.5)*5,life:18,color:'#4af'});
       playFX(440+boss.hits*8,0.1,'sine',0.15);
@@ -3277,6 +3421,7 @@ function updateBoard(){
 // ═══════════════════════════════════════════════════════════════════
 function render(){
   frame++;
+  if(isMissileState() && goldLvl()>=3) goldFreezeClamp();
   if(frame%20===0) updateHtmlUiZoom();
   activePopupView=null;
   ctx.clearRect(0,0,W,H);
@@ -3306,7 +3451,7 @@ function render(){
     case S.SPLASH_BOSS: renderSplashBoss(); break;
   }
   if(gs===S.SURFACE || isMissileState()) drawGoldTrails();
-  if(isMissileState()){ drawBossTierOverlay(); drawIceMissiles(); }
+  if(isMissileState()){ drawBossTierOverlay(); if(goldActive()) drawGoldPowers(); drawIceMissiles(); }
   // Mobile touch UI update
   if(mobileMode) { updateTouchUI(); drawVirtualButtons(); }
 }
@@ -3715,7 +3860,7 @@ function drawHUD(){
   }
   if(goldActive()){
     ctx.fillStyle=`rgba(255,${200+Math.floor(40*Math.sin(frame*0.1))},0,1)`; ctx.font='bold 12px Courier New';
-    ctx.fillText('✨ GOLD-MODUS'+(TEST_GOLD&&!goldModeUnlocked?' (Test)':''), W/2, kidsMode?62:48);
+    ctx.fillText('✨ GOLD-MODUS '+['','I','II','III'][goldLvl()]+(TEST_GOLD>goldLevel?' (Test)':''), W/2, kidsMode?62:48);
   }
   // Upgrade indicators
   if(weaponLevel>0||shieldLevel>0||rocketLevel>0||diamondWeaponLevel>0||diamondShieldLevel>0||diamondRocketLevel>0){
@@ -4014,10 +4159,12 @@ function drawKioskBuilding(wx, gy){
 function kioskBuySpecial(kind){
   const no=()=>playFX(150,0.15,'square',0.1), ok=()=>playFX(880,0.2,'sine',0.2);
   kind = kind || (kioskTab==='ice'?'missile':kioskTab==='hearts'?'heart':kioskTab==='jetpack'?'jetpack':kioskTab==='gold'?'gold':'');
+  if(kind==='goldToggle'){ if(goldLevel<1 && !TEST_GOLD) return no(); goldModeOn=!goldModeOn; return goldModeOn?ok():playFX(330,0.15,'sine',0.12); }
   if(kind==='gold'){
-    if(goldModeUnlocked || TEST_GOLD){ goldModeOn=!goldModeOn; return goldModeOn?ok():playFX(330,0.15,'sine',0.12); }
-    if(rubies<GOLD_MODE_COST) return no();
-    rubies-=GOLD_MODE_COST; goldModeUnlocked=true; goldModeOn=true;
+    if(goldLevel>=3) return no();
+    const cost=GOLD_COSTS[goldLevel+1];
+    if(rubies<cost) return no();
+    rubies-=cost; goldLevel++; goldModeOn=true;
     playFX(523,0.2,'sine',0.25); setTimeout(()=>playFX(784,0.3,'sine',0.25),150); setTimeout(()=>playFX(1046,0.4,'sine',0.25),300);
     autoUpdateSaves(); return;
   }
@@ -4134,25 +4281,27 @@ function renderKioskInner(){
     return;
   }
   if(kioskTab==='gold'){
-    const cy=KL.cy, avail=goldModeUnlocked||TEST_GOLD;
-    ctx.textAlign='center'; ctx.fillStyle='#ffd700'; ctx.font='bold 17px Courier New';
-    ctx.fillText('✨ GOLD-MODUS DES ASTRONAUTEN ✨', W/2, cy);
-    ctx.fillStyle='#eed'; ctx.font='12px Courier New';
-    ['🛡 Goldenes Rundum-Schild statt blau – 3× so stark',
-     '💧 Alle Schüsse +50 % Kraft mit Goldschweif',
-     '🚀 Eis-Lenkraketen ziehen einen Goldschweif',
-     `Freischalten: ${GOLD_MODE_COST} 🔴 Rubine  (du hast ${rubies})`].forEach((t,i)=>ctx.fillText(t, W/2, cy+24+i*18));
-    // kleiner goldener Astronaut als Vorschau
-    const ax=W/2, ay=cy+108, pr=22+Math.sin(frame*0.15)*1.5;
-    const sg=ctx.createRadialGradient(ax,ay,pr*0.5,ax,ay,pr);
-    sg.addColorStop(0,'rgba(255,230,120,0.05)'); sg.addColorStop(1,'rgba(255,170,0,0.6)');
-    ctx.fillStyle=sg; ctx.beginPath(); ctx.arc(ax,ay,pr,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='#ffd700'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(ax,ay,pr,0,Math.PI*2); ctx.stroke();
-    ctx.font='22px Arial'; ctx.fillText('🧑‍🚀', ax, ay+8);
-    const lab = avail ? (goldModeOn?'ENTER: Gold-Modus AUS':'ENTER: Gold-Modus AN')
-                      : (rubies>=GOLD_MODE_COST?`ENTER: Freischalten (${GOLD_MODE_COST} 🔴)`:`Noch ${GOLD_MODE_COST-rubies} 🔴 fehlen`);
-    kBtn(W/2-150, dy+dh-48, 300, 36, lab, avail || rubies>=GOLD_MODE_COST, 'gold');
-    if(TEST_GOLD && !goldModeUnlocked){ ctx.fillStyle='#8cf'; ctx.font='11px Courier New'; ctx.textAlign='center'; ctx.fillText('🧪 Testmodus aktiv (Admin)', W/2, dy+dh-54); }
+    const cy=KL.cy, x0=dx+24, rw=dw-48, eff=goldLvl();
+    ctx.textAlign='center'; ctx.fillStyle='#ffd700'; ctx.font='bold 16px Courier New';
+    ctx.fillText(`✨ GOLD-MODUS – Stufe ${goldLevel}/3${TEST_GOLD?`  (Test: ${TEST_GOLD})`:''}${goldModeOn?'':'  · AUS'}`, W/2, cy-4);
+    const L=[
+      {n:1, t:'Gold-Schild (360°, 3× stärker) + Goldschüsse +50 %'},
+      {n:2, t:'+ unendlich Schweben (J = Auto) + Schallwellen 50 Schaden'},
+      {n:3, t:'+ Laser 80 Schaden + Eis-Raketen frieren 10 s ein'},
+    ];
+    L.forEach((l,i)=>{
+      const y=cy+8+i*34, own=goldLevel>=l.n, test=!own&&TEST_GOLD>=l.n;
+      ctx.fillStyle=own?'rgba(170,120,0,0.5)':test?'rgba(40,90,140,0.45)':'rgba(40,40,60,0.45)';
+      ctx.beginPath(); ctx.roundRect(x0,y,rw,30,7); ctx.fill();
+      ctx.textAlign='left'; ctx.fillStyle=own||test?'#fff':'#aab'; ctx.font='bold 12px Courier New';
+      ctx.fillText(`${own?'✅':test?'🧪':'🔒'} Stufe ${l.n}: ${l.t}`, x0+8, y+19);
+      ctx.textAlign='right'; ctx.fillText(`${GOLD_COSTS[l.n]} 🔴`, x0+rw-8, y+19);
+    });
+    ctx.textAlign='center'; ctx.fillStyle='#ddc'; ctx.font='11px Courier New';
+    ctx.fillText(`Du hast ${rubies} 🔴 · Schallwellen/Laser kommen aus dem Schild: im Bosskampf S halten`, W/2, cy+118);
+    const nxt=goldLevel<3?GOLD_COSTS[goldLevel+1]:0;
+    kBtn(W/2-250, dy+dh-48, 300, 36, goldLevel>=3?'✅ Höchste Stufe':(rubies>=nxt?`ENTER: Stufe ${goldLevel+1} (${nxt} 🔴)`:`Stufe ${goldLevel+1}: noch ${nxt-rubies} 🔴`), goldLevel<3&&rubies>=nxt, 'gold');
+    kBtn(W/2+60, dy+dh-48, 190, 36, goldModeOn?'G: Gold AUS':'G: Gold AN', goldLevel>=1||TEST_GOLD>0, 'goldToggle');
     return;
   }
   if(kioskTab==='hearts'){
@@ -6055,7 +6204,7 @@ function askSplashPlay(){
 // ═══════════════════════════════════════════════════════════════════
 let POPUP_SCALE = 100;   // % – set in Admin → Einstellungen
 try { const v=+localStorage.getItem('se_popup_scale'); if(v>=40 && v<=250) POPUP_SCALE=v; } catch(e){}
-setTimeout(()=>{ const s=document.getElementById('cfgPopupScale'); if(s) s.value=POPUP_SCALE; setPopupScale(POPUP_SCALE); const g=document.getElementById('cfgTestGold'); if(g) g.checked=TEST_GOLD; },0);
+setTimeout(()=>{ const s=document.getElementById('cfgPopupScale'); if(s) s.value=POPUP_SCALE; setPopupScale(POPUP_SCALE); const g=document.getElementById('cfgTestGold'); if(g) g.value=String(TEST_GOLD); },0);
 function setPopupScale(v){
   POPUP_SCALE=Math.max(40,Math.min(250,+v||100));
   try{ localStorage.setItem('se_popup_scale', String(POPUP_SCALE)); }catch(e){}
