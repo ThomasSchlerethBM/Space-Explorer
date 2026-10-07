@@ -2415,7 +2415,7 @@ function drawGoldPowers(){
   }
   if(goldLvl()>=2 && isMissileState() && !keys['KeyS']){
     ctx.fillStyle='rgba(255,215,0,0.8)'; ctx.font='bold 12px Courier New'; ctx.textAlign='center';
-    ctx.fillText(goldLvl()>=3?'S halten: Gold-Schild mit Schallwellen + Laser':'S halten: Gold-Schild mit Schallwellen', W/2, 92);
+    ctx.fillText(goldLvl()>=3?'S halten: Gold-Schild mit Schallwellen + Laser':'S halten: Gold-Schild mit Schallwellen', W/2, HUD.h+20);
   }
 }
 // ═══════════════════════════════════════════════════════════════════
@@ -3428,9 +3428,9 @@ function render(){
   switch(gs){
     case S.MENU:        renderMenu();        break;
     case S.LAUNCH:      renderLaunch();      break;
-    case S.SPACE:       renderSpace();       break;
+    case S.SPACE:       renderSpace(); if(gameMode==='saga') renderSagaHUD(); break;
     case S.APPROACHING: renderApproaching(); break;
-    case S.SURFACE:     renderSurface();     break;
+    case S.SURFACE:     renderSurface(); if(gameMode==='saga') renderSagaHUD(); break;
     case S.BOSS:        renderBoss();        break;
     case S.BOSSWIN:     renderBossWin();     break;
     case S.GAMEOVER:    renderGameOver();    break;
@@ -3823,88 +3823,129 @@ function drawLuckyTree(wx,gy){
 }
 
 // ─── HUD ─────────────────────────────────────────────────────────
+// HUD-Maße (werden von drawHUD gesetzt, von Planeten-Infozeilen mitbenutzt)
+const HUD = { k:1, row1:30, row2:54, row3:80, h:66 };
+function hudHasInfoRow(){
+  if(gs!==S.SURFACE) return false;
+  if(currentPlanet==='monster') return monsters.length>0;
+  return ['magma','stone','diamond','gold','ruby'].includes(currentPlanet);
+}
 function drawHUD(){
-  ctx.fillStyle='rgba(0,0,10,0.55)'; ctx.fillRect(0,0,W,62);
+  const k = Math.max(0.72, Math.min(1.5, W/1000, H/620));
+  const bossFight = isMissileState();
+  HUD.k=k; HUD.row1=Math.round(30*k); HUD.row2=Math.round(56*k); HUD.row3=Math.round(84*k);
+  HUD.h = Math.round((hudHasInfoRow()?96:68)*k);
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,12,0.72)';
+  if(bossFight){ const gL=W/2-232, gR=W/2+232; ctx.fillRect(0,0,gL,HUD.h); ctx.fillRect(gR,0,W-gR,HUD.h); }
+  else { ctx.fillRect(0,0,W,HUD.h); ctx.fillStyle='rgba(100,160,255,0.25)'; ctx.fillRect(0,HUD.h-1,W,1); }
+  const F=(px,bold=true,fam='Courier New')=>`${bold?'bold ':''}${Math.round(px*k)}px ${fam}`;
+  const RESERVE = 112;            // Platz für Ton- und X-Button oben rechts
+  const pad = Math.round(12*k), gap = Math.round(22*k);
 
-  // TOP-LEFT: save button (mobile) + crowns
-  if(mobileMode && (gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH)){
-    ctx.fillStyle='rgba(20,50,120,0.8)'; ctx.strokeStyle='rgba(100,180,255,0.6)'; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.roundRect(8, 56, 100, 30, 8); ctx.fill(); ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
-    ctx.fillText('💾 Save (P)', 58, 76);
-  }
-  ctx.font='bold 20px Courier New'; ctx.fillStyle='#ffd700'; ctx.textAlign='left';
-  ctx.fillText('👑 '+crowns, 12, 34);
-  // DIAMONDS – shown right of crowns
-  if(diamonds>0||diamondWeaponLevel>0||diamondShieldLevel>0||diamondRocketLevel>0){
-    ctx.font='bold 20px Courier New'; ctx.fillStyle='#00cfff'; ctx.textAlign='left';
-    ctx.fillText('💎 '+diamonds, 160, 34);
-  }
-  // RUBIES – shown right of diamonds
-  if(rubies>0){
-    ctx.font='bold 20px Courier New'; ctx.fillStyle='#ff4466'; ctx.textAlign='left';
-    ctx.fillText('🔴 '+rubies, 280, 34);
-  }
-  // SPLASH STARS
-  if(splashStars>0){
-    ctx.font='bold 20px Courier New'; ctx.fillStyle='#ffcc00'; ctx.textAlign='left';
-    ctx.fillText('⭐ '+splashStars, 400, 34);
-  }
+  // ── Zeile 1 links: Währungen ──
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  let x=pad;
+  const cur=[['👑 '+crowns,'#ffd700',true]];
+  if(diamonds>0||diamondWeaponLevel>0||diamondShieldLevel>0||diamondRocketLevel>0) cur.push(['💎 '+diamonds,'#00cfff',true]);
+  if(rubies>0) cur.push(['🔴 '+rubies,'#ff4466',true]);
+  if(splashStars>0) cur.push(['⭐ '+splashStars,'#ffcc00',true]);
+  ctx.font=F(21);
+  for(const [t,col] of cur){ ctx.fillStyle=col; ctx.fillText(t,x,HUD.row1); x+=ctx.measureText(t).width+gap; }
+  const leftEnd=x-gap;
 
-  // CENTER: level + kids mode badge
-  ctx.fillStyle='#adf'; ctx.font='bold 16px Courier New'; ctx.textAlign='center';
-  ctx.fillText('LEVEL '+Math.min(level,100), W/2, 32);
-  if(kidsMode){
-    ctx.fillStyle='#afa'; ctx.font='bold 12px Courier New';
-    ctx.fillText('🐣 KINDERMODUS', W/2, 48);
-  }
-  if(goldActive()){
-    ctx.fillStyle=`rgba(255,${200+Math.floor(40*Math.sin(frame*0.1))},0,1)`; ctx.font='bold 12px Courier New';
-    ctx.fillText('✨ GOLD-MODUS '+['','I','II','III'][goldLvl()]+(TEST_GOLD>goldLevel?' (Test)':''), W/2, kidsMode?62:48);
-  }
-  // Upgrade indicators
-  if(weaponLevel>0||shieldLevel>0||rocketLevel>0||diamondWeaponLevel>0||diamondShieldLevel>0||diamondRocketLevel>0){
-    const ups=[];
-    if(weaponLevel>0) ups.push('💧'.repeat(weaponLevel+1));
-    if(shieldLevel>0) ups.push(shieldLevel===2?'🛡360°':shieldLevel===1?'🛡×2':'🛡');
-    if(rocketLevel>0) ups.push('🚀'.repeat(rocketLevel+1));
-    if(diamondWeaponLevel>0) ups.push('💎⚔'+(diamondWeaponLevel===2?'×4':'×2'));
-    if(diamondShieldLevel>0) ups.push('💎🛡'+(diamondShieldLevel===2?'×4':'×2'));
-    if(diamondRocketLevel>0) ups.push('💎🚀×'+(diamondRocketLevel+1));
-    ctx.fillStyle='rgba(255,255,180,0.85)'; ctx.font='bold 14px Arial'; ctx.textAlign='left';
-    ctx.fillText(ups.join('  '), 12, 56);
-  }
-
-  // RIGHT: hearts – kept 170px from right edge so X+mute buttons don't overlap
-  ctx.font='26px Arial'; ctx.textAlign='right';
+  // ── Zeile 1 rechts: Herzen + Schild ──
+  let rx=W-RESERVE;
+  ctx.textAlign='right'; ctx.font=F(26,false,'Arial');
   if(lives<=3){
-    for(let i=0;i<3;i++) ctx.fillText(i<lives?'❤️':'🖤', W-170-i*36, 36);
+    for(let i=0;i<3;i++){ ctx.fillText(i<lives?'❤️':'🖤', rx-i*Math.round(34*k), HUD.row1+Math.round(4*k)); }
+    rx -= 3*Math.round(34*k);
   } else {
-    ctx.fillText('❤️', W-170-2*36, 36);
-    ctx.font='bold 22px Courier New'; ctx.fillStyle='#ff6688';
-    ctx.fillText('×'+lives, W-170, 34);
+    ctx.font=F(22); ctx.fillStyle='#ff6688'; ctx.fillText('×'+lives, rx, HUD.row1);
+    rx -= ctx.measureText('×'+lives).width+Math.round(4*k);
+    ctx.font=F(26,false,'Arial'); ctx.fillText('❤️', rx, HUD.row1+Math.round(4*k));
+    rx -= Math.round(34*k);
+  }
+  const barW=Math.round(140*k), barH=Math.round(14*k);
+  ctx.font=F(14);
+  const shTxt = shieldBroken ? '🛡 KAPUTT' : '🛡 '+shieldHP+'%';
+  const shTxtW = ctx.measureText(shTxt).width;
+  const lvlTxt='LEVEL '+Math.min(level,100);
+  ctx.font=F(17); const lvlW=ctx.measureText(lvlTxt).width;
+  // passt der Schild noch in Zeile 1, ohne die Mitte zu berühren?
+  const shieldBlockW = barW + Math.round(8*k) + shTxtW + Math.round(18*k);
+  const centerRight = bossFight ? leftEnd : W/2+lvlW/2;
+  const shieldInRow1 = (rx - shieldBlockW) > centerRight + Math.round(16*k);
+  const drawShield=(rightX, baseY)=>{
+    const bx=rightX-barW, by=baseY-barH+Math.round(2*k);
+    ctx.fillStyle='#111'; ctx.strokeStyle='#446'; ctx.lineWidth=1;
+    ctx.fillRect(bx,by,barW,barH); ctx.strokeRect(bx,by,barW,barH);
+    ctx.fillStyle = shieldBroken ? '#800' : goldActive()? '#ffcc33' : shieldHP>60 ? '#4af' : shieldHP>30 ? '#fa0' : '#f44';
+    ctx.fillRect(bx,by,barW*(shieldHP/100),barH);
+    ctx.fillStyle='#cdf'; ctx.font=F(14); ctx.textAlign='right';
+    ctx.fillText(shTxt, bx-Math.round(8*k), baseY);
+    return bx-Math.round(8*k)-shTxtW;
+  };
+  let row2Right = W-RESERVE;
+  if(shieldInRow1) drawShield(rx-Math.round(18*k), HUD.row1);
+  else row2Right = drawShield(W-RESERVE, HUD.row2) - Math.round(14*k);
+
+  // ── Zeile 1 Mitte: Level (nicht im Bosskampf – dort steht der Lebensbalken des Bosses) ──
+  const levelInRow1 = !bossFight && (W/2-lvlW/2) > leftEnd+Math.round(16*k);
+  if(levelInRow1){ ctx.fillStyle='#adf'; ctx.font=F(17); ctx.textAlign='center'; ctx.fillText(lvlTxt, W/2, HUD.row1); }
+
+  // ── Zeile 2: Upgrades links, Abzeichen Mitte ──
+  const badges=[];
+  if(!levelInRow1 && !bossFight) badges.push([lvlTxt,'#adf']);
+  if(kidsMode) badges.push(['🐣 KINDERMODUS','#afa']);
+  if(goldActive()) badges.push(['✨ GOLD-MODUS '+['','I','II','III'][goldLvl()]+(TEST_GOLD>goldLevel?' (Test)':''), `rgb(255,${200+Math.floor(40*Math.sin(frame*0.1))},0)`]);
+  ctx.font=F(14);
+  const sep='   ·   ';
+  const badgeW = badges.reduce((a,[t])=>a+ctx.measureText(t).width,0) + Math.max(0,badges.length-1)*ctx.measureText(sep).width;
+  let bxStart;
+  if(bossFight){ bxStart = row2Right - badgeW; }        // im Bosskampf rechts
+  else bxStart = W/2 - badgeW/2;
+  let bxp=bxStart;
+  badges.forEach(([t,col],i)=>{ ctx.fillStyle=col; ctx.textAlign='left'; ctx.fillText(t,bxp,HUD.row2); bxp+=ctx.measureText(t).width; if(i<badges.length-1){ ctx.fillStyle='#667'; ctx.fillText(sep,bxp,HUD.row2); bxp+=ctx.measureText(sep).width; } });
+  let leftLimit = (badges.length ? bxStart : row2Right) - Math.round(16*k);
+  if(bossFight) leftLimit=Math.min(leftLimit, W/2-235);   // Platz für den Boss-Lebensbalken
+
+  const ups=[];
+  if(weaponLevel>0) ups.push('💧'.repeat(weaponLevel+1));
+  if(shieldLevel>0) ups.push(shieldLevel===2?'🛡360°':shieldLevel===1?'🛡×2':'🛡');
+  if(rocketLevel>0) ups.push('🚀'.repeat(rocketLevel+1));
+  if(diamondWeaponLevel>0) ups.push('💎⚔'+(diamondWeaponLevel===2?'×4':'×2'));
+  if(diamondShieldLevel>0) ups.push('💎🛡'+(diamondShieldLevel===2?'×4':'×2'));
+  if(diamondRocketLevel>0) ups.push('💎🚀×'+(diamondRocketLevel+1));
+  if(gs===S.SURFACE || gs===S.SPACE){
+    if(goldPlanetUnlocked) ups.push('🏆 Gold frei!');
+    else if(diamonds>0) ups.push(`${GOLD_PLANET_COST-diamonds} 💎 bis Gold`);
+  }
+  if(ups.length){
+    let fs=15; const txt=ups.join('  ');
+    ctx.font=F(fs,true,'Arial');
+    while(fs>9 && pad+ctx.measureText(txt).width>leftLimit){ fs--; ctx.font=F(fs,true,'Arial'); }
+    ctx.fillStyle='rgba(255,255,190,0.9)'; ctx.textAlign='left';
+    ctx.fillText(txt, pad, HUD.row2);
   }
 
-  // Shield bar – bigger, below hearts
-  const barW=160, barH=14, bx=W-170-2*36-barW-16, by=8;
-  ctx.fillStyle='#111'; ctx.strokeStyle='#446'; ctx.lineWidth=1;
-  ctx.fillRect(bx,by,barW,barH); ctx.strokeRect(bx,by,barW,barH);
-  const barFill = barW*(shieldHP/100);
-  const barCol = shieldBroken ? '#800' : shieldHP>60 ? '#4af' : shieldHP>30 ? '#fa0' : '#f44';
-  ctx.fillStyle=barCol;
-  ctx.fillRect(bx,by,barFill,barH);
-  // Quick-save hint (small, unobtrusive)
-
-  // Shield label
-  ctx.fillStyle='#cdf'; ctx.font='bold 13px Courier New'; ctx.textAlign='right';
-  ctx.fillText(shieldBroken ? '🛡 KAPUTT' : '🛡 '+shieldHP+'%', bx-6, by+barH-1);
-  // Recharge hint
+  // Aufladehinweis
   if(treeRechargeTimer>0&&(shieldHP<100||shieldBroken)){
-    const prog=treeRechargeTimer/TREE_RECHARGE_TIME;
-    ctx.fillStyle='rgba(80,255,80,0.9)'; ctx.font='bold 12px Courier New'; ctx.textAlign='right';
-    ctx.fillText('⚡ '+Math.ceil((TREE_RECHARGE_TIME-treeRechargeTimer)/60)+'s', bx-6, by+barH+14);
+    ctx.fillStyle='rgba(80,255,80,0.95)'; ctx.font=F(13); ctx.textAlign='right';
+    ctx.fillText('⚡ Schild lädt: '+Math.ceil((TREE_RECHARGE_TIME-treeRechargeTimer)/60)+'s', W-RESERVE, HUD.h+Math.round(16*k));
+  }
+  ctx.restore();
+
+  // Speichern-Button (Mobile) unter der Leiste
+  if(mobileMode && (gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH)){
+    const sb=getSaveButtonRect();
+    ctx.fillStyle='rgba(20,50,120,0.85)'; ctx.strokeStyle='rgba(100,180,255,0.6)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(sb.x,sb.y,sb.w,sb.h,8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font=`bold ${Math.round(13*k)}px Courier New`; ctx.textAlign='center';
+    ctx.fillText('💾 Save (P)', sb.x+sb.w/2, sb.y+sb.h*0.67);
   }
 }
+function getSaveButtonRect(){ const k=HUD.k; return { x:8, y:HUD.h+6, w:Math.round(110*k), h:Math.round(32*k) }; }
 
 // ─── FX ──────────────────────────────────────────────────────────
 function drawFX(){
@@ -4333,7 +4374,7 @@ function renderKioskInner(){
       {name:'Stufe 3 (+100 💎)', desc:'Tripelrakete (3x Antrieb)',  cost:100, owned:diamondRocketLevel>=2, diamond:true},
     ],
     diamond_w:[
-      {name:'Stufe 1 (Basis)',    desc:'Normaler Wasserkanone',        cost:0,   owned:diamondWeaponLevel>=0},
+      {name:'Stufe 1 (Basis)',    desc:'Normale Wasserkanone',        cost:0,   owned:diamondWeaponLevel>=0},
       {name:'Stufe 2 (+100 💎)',  desc:'Doppelter Schaden',            cost:100, owned:diamondWeaponLevel>=1, diamond:true},
       {name:'Stufe 3 (+100 💎)',  desc:'Vierfacher Schaden',           cost:100, owned:diamondWeaponLevel>=2, diamond:true},
     ],
@@ -4381,10 +4422,11 @@ function renderKioskInner(){
     ctx.fillText(item.desc,dx+56,iy+32);
 
     if(isNext){
-      const canAfford=crowns>=100;
+      const have=item.diamond?diamonds:crowns, sym=item.diamond?'💎':'👑';
+      const canAfford=have>=item.cost;
       ctx.fillStyle=canAfford?'#ffd700':'#f66';
       ctx.font='bold 13px Courier New'; ctx.textAlign='right';
-      ctx.fillText(canAfford?'ENTER: Kaufen':'Zu wenig 👑',dx+dw-28,iy+26);
+      ctx.fillText(canAfford?`ENTER: Kaufen (${item.cost} ${sym})`:`Zu wenig ${sym} – noch ${item.cost-have}`,dx+dw-28,iy+26);
     }
   });
 
@@ -4821,16 +4863,7 @@ function renderQuestOverlay(){
 }
 
 // ─── DIAMOND HUD DISPLAY ─────────────────────────────────────────
-function drawDiamondHUD(){
-  // Progress shown under diamond count
-  if(goldPlanetUnlocked){
-    ctx.fillStyle='#ffd700'; ctx.font='bold 11px Courier New'; ctx.textAlign='left';
-    ctx.fillText('🏆 Gold frei!', 140, 50);
-  } else if(diamonds>0){
-    ctx.fillStyle='rgba(0,207,255,0.5)'; ctx.font='10px Courier New'; ctx.textAlign='left';
-    ctx.fillText(`${GOLD_PLANET_COST-diamonds} bis Gold`, 140, 50);
-  }
-}
+function drawDiamondHUD(){ /* jetzt in drawHUD (Zeile 2) */ }
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -8004,7 +8037,7 @@ function renderSagaHUD(){
 
   // Top guidance banner in space map
   if(gs===S.SPACE){
-    const gy=56;
+    const gy=HUD.h;
     ctx.fillStyle='rgba(0,30,80,0.85)';
     ctx.fillRect(0,gy,W,50);
     ctx.strokeStyle='rgba(100,180,255,0.5)'; ctx.lineWidth=1;
@@ -8012,9 +8045,9 @@ function renderSagaHUD(){
     ctx.beginPath(); ctx.moveTo(0,gy+50); ctx.lineTo(W,gy+50); ctx.stroke();
     ctx.textAlign='center';
     ctx.fillStyle='#ffd700'; ctx.font='bold 16px Courier New';
-    ctx.fillText('NAECHSTER SCHRITT: Fliege zum '+(PLANET_DATA[ch.planet] && PLANET_DATA[ch.planet].name || ch.planet.toUpperCase())+'!', W/2, gy+20);
+    ctx.fillText('➡️ NÄCHSTER SCHRITT: Fliege zum '+(PLANET_DATA[ch.planet] && PLANET_DATA[ch.planet].name || ch.planet.toUpperCase())+'!', W/2, gy+20);
     ctx.fillStyle='#fff'; ctx.font='13px Courier New';
-    ctx.fillText('UP Schub  LEFT RIGHT Drehen  An einen Planeten fliegen zum Landen', W/2, gy+40);
+    ctx.fillText('↑ Schub  ·  ← → Drehen  ·  zum Landen an den Planeten heranfliegen', W/2, gy+40);
   }
 
   // Bottom banner
@@ -8642,31 +8675,31 @@ function renderSurface(){
   ctx.fillStyle='#cdf'; ctx.font='14px Courier New'; ctx.textAlign='left';
   ctx.fillText(pd.name,12,H-12);
   if(currentPlanet==='monster'&&monsters.length>0){
-    ctx.textAlign='center'; ctx.fillStyle='#f88'; ctx.font='bold 16px Courier New';
-    ctx.fillText('👾 Monster übrig: '+monsters.length,W/2,36+16);
+    ctx.textAlign='center'; ctx.fillStyle='#f88'; ctx.font='bold '+Math.round(16*HUD.k)+'px Courier New';
+    ctx.fillText('👾 Monster übrig: '+monsters.length,W/2,HUD.row3);
   }
   if(currentPlanet==='magma'){
-    ctx.textAlign='center'; ctx.fillStyle='#f84'; ctx.font='bold 15px Courier New';
-    ctx.fillText('🌋 Magmaplanet  |  Betritt die Monsterburg!',W/2,36+16);
+    ctx.textAlign='center'; ctx.fillStyle='#f84'; ctx.font='bold '+Math.round(15*HUD.k)+'px Courier New';
+    ctx.fillText('🌋 Magmaplanet  |  Betritt die Monsterburg!',W/2,HUD.row3);
   }
   if(currentPlanet==='stone'){
     const stBig=stoneMonsters.filter(m=>!m.dead).length;
     const stSml=stoneMiniMonsters.filter(m=>!m.dead).length;
-    ctx.textAlign='center'; ctx.fillStyle='#bbb'; ctx.font='bold 14px Courier New';
-    ctx.fillText(`🗿 Steinplanet  |  Große: ${stBig}  Kleine: ${stSml}`,W/2,36+16);
+    ctx.textAlign='center'; ctx.fillStyle='#bbb'; ctx.font='bold '+Math.round(14*HUD.k)+'px Courier New';
+    ctx.fillText(`🗿 Steinplanet  |  Große: ${stBig}  Kleine: ${stSml}`,W/2,HUD.row3);
   }
   if(currentPlanet==='diamond'){
     const done=SUBJECTS.filter(s=>subjectQuestsDone[s]).length;
-    ctx.textAlign='center'; ctx.fillStyle='#00cfff'; ctx.font='bold 14px Courier New';
-    ctx.fillText(`💎 Diamantplanet  |  ${done}/${SUBJECTS.length} Fächer  |  💎 ${diamonds}`,W/2,36+16);
+    ctx.textAlign='center'; ctx.fillStyle='#00cfff'; ctx.font='bold '+Math.round(14*HUD.k)+'px Courier New';
+    ctx.fillText(`💎 Diamantplanet  |  ${done}/${SUBJECTS.length} Fächer  |  💎 ${diamonds}`,W/2,HUD.row3);
   }
   if(currentPlanet==='gold'){
-    ctx.textAlign='center'; ctx.fillStyle='#ffd700'; ctx.font='bold 14px Courier New';
-    ctx.fillText('🏆 Goldplanet  |  Ultimative Herausforderung!',W/2,36+16);
+    ctx.textAlign='center'; ctx.fillStyle='#ffd700'; ctx.font='bold '+Math.round(14*HUD.k)+'px Courier New';
+    ctx.fillText('🏆 Goldplanet  |  Ultimative Herausforderung!',W/2,HUD.row3);
   }
   if(currentPlanet==='ruby'){
-    ctx.textAlign='center'; ctx.fillStyle='#ff4466'; ctx.font='bold 14px Courier New';
-    ctx.fillText('🔴 Rubinplanet  |  8-Kopf-Monster!',W/2,36+16);
+    ctx.textAlign='center'; ctx.fillStyle='#ff4466'; ctx.font='bold '+Math.round(14*HUD.k)+'px Courier New';
+    ctx.fillText('🔴 Rubinplanet  |  8-Kopf-Monster!',W/2,HUD.row3);
   }
   if(currentPlanet==='earth' && !inRocket){
     const KIOSK_X=1320;
@@ -8687,7 +8720,7 @@ function renderSurface(){
       ctx.fillText(arrowDir>0?'🎁 →':'← 🎁', arrowX, H-55);
     }
     if(Math.abs(hero.x-KIOSK_X)<65&&!kioskOpen){
-      ctx.fillStyle='rgba(255,215,0,0.95)'; ctx.font='bold 14px Courier New'; ctx.textAlign='center';
+      ctx.fillStyle='rgba(255,215,0,0.95)'; ctx.font='bold '+Math.round(14*HUD.k)+'px Courier New'; ctx.textAlign='center';
       ctx.fillText('K: Kiosk öffnen (Upgrades für 100 👑)',W/2,H-50);
     }
   }
@@ -9429,7 +9462,7 @@ function handleGameAreaTap(x, y) {
   const cy = (y - rect.top)  * (H / rect.height);
 
   // 💾 Save-Button oben links
-  if ((gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog && cx>=8 && cx<=108 && cy>=56 && cy<=86) { openSaveMenu(); return; }
+  if ((gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog && (()=>{const b=getSaveButtonRect(); return cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h;})()) { openSaveMenu(); return; }
   if (!dialog && handleExchangeTap(cx, cy)) return;
   // Eis-Lenkrakete button in boss fights
   if (handleMissileTap(cx, cy)) return;
