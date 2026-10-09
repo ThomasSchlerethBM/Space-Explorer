@@ -612,6 +612,16 @@ window.addEventListener('keydown', e => {
   // Diamond planet quest input (answer handling)
   if(questState && gs===S.SURFACE){ e.preventDefault(); handleQuestKey(e.code, e.key); return; }
 
+  // Baumschule (Erde)
+  if(nurseryOpen && nearNursery()){
+    e.preventDefault();
+    if(e.code==='Escape'||e.code==='KeyT'){ nurseryOpen=false; return; }
+    if(e.code==='Digit1'||e.code==='Numpad1') buySaplings(1);
+    if(e.code==='Digit2'||e.code==='Numpad2') buySaplings(5);
+    if(e.code==='Digit3'||e.code==='Numpad3') buySaplings('fill');
+    return;
+  }
+  if(nearNursery() && !questState && e.code==='KeyT'){ e.preventDefault(); nurseryOpen=true; nurseryMsg=''; return; }
   // Braustand (Erde)
   if(brewOpen && nearBrew()){
     e.preventDefault();
@@ -623,6 +633,7 @@ window.addEventListener('keydown', e => {
   if(nearBrew() && !questState && e.code==='KeyT'){ e.preventDefault(); brewOpen=true; brewMsg=''; return; }
   // Waldplanet: Bombe
   if(gs===S.SURFACE && currentPlanet==='forest' && e.code==='KeyB'){ e.preventDefault(); forestPlaceBomb(); return; }
+  if(gs===S.SURFACE && currentPlanet==='forest' && (e.code==='KeyE'||e.code==='KeyF')){ e.preventDefault(); forestPlant(); return; }
   // Tränke trinken
   if((gs===S.SURFACE||isMissileState()) && !kioskOpen && !dialog && !questState && !mathQuiz){
     if(e.code==='KeyL' && potions.life>0){ drinkPotion('life'); return; }
@@ -887,9 +898,50 @@ let ingredients = {herb:0,berry:0,mushroom:0,flower:0,feather:0,nut:0};
 let potions = {life:0,atk:0,shield:0};
 let potionAtk = 0;                    // Restzeit Doppel-Angriff (Frames)
 let forestTrees=[], forestBombs=[], forestPickups=[], forestMonsters=[];
+// Baumschule + Wachstum + Jahreszeiten (1 Tag = 1 Minute)
+const DAY_MS = 60000, GROW_MS = 2*DAY_MS, SAPLING_MAX = 20, SAPLING_COST = 1;
+let saplings = 0;
+let nurseryOpen=false, nurseryHits=[], nurseryMsg='', nurseryMsgCol='#8f8';
+const SEASONS=[
+  {name:'Frühling', icon:'🌸', sky:['#0a2a18','#2f6a3a'], groundTop:'#4f9a32'},
+  {name:'Sommer',   icon:'☀️', sky:['#06200f','#1d4a24'], groundTop:'#3f7a2a'},
+  {name:'Herbst',   icon:'🍂', sky:['#1a1408','#4a3418'], groundTop:'#8a6a2a'},
+  {name:'Winter',   icon:'❄️', sky:['#101828','#3a4a66'], groundTop:'#e8f0ff'} ];
+function forestDay(){ return Math.floor(Date.now()/DAY_MS); }
+function forestSeason(){ return Math.floor(forestDay()/3)%4; }   // jede Jahreszeit dauert 3 Tage (3 Minuten)
 let brewOpen=false, brewHits=[], brewMsg='', brewMsgCol='#8f8';
 // ── Goldraketen (Kiosk, Diamanten): Treffer verwandelt den Gegner 10 s in einen Goldblock, 4 Schaden pro Sekunde ──
 const GOLD_ROCKET_COST = 300;
+// ── Rüstungen (Kiosk): sehr wertvoll, schützen mit einer Chance vor jedem Treffer und ändern das Aussehen ──
+const ARMORS = {
+  bronze:  { name:'Bronze-Rüstung',  icon:'🥉', cur:'crowns',   price:3000, prot:0.20, body:'#b87333', helm:'#8c5523', legs:'#6b4423', trim:'#f0b070' },
+  knight:  { name:'Ritter-Rüstung',  icon:'⚔️', cur:'crowns',   price:6000, prot:0.30, body:'#c9d1d9', helm:'#8a96a3', legs:'#5c6670', trim:'#ffffff', plume:'#e0262e' },
+  diamond: { name:'Diamant-Rüstung', icon:'💎', cur:'diamonds', price:1500, prot:0.45, body:'#5fe3ff', helm:'#2bb5d6', legs:'#1d7f99', trim:'#e8ffff', sparkle:'#ffffff' },
+  ruby:    { name:'Rubin-Rüstung',   icon:'🔴', cur:'rubies',   price:80,   prot:0.60, body:'#c3122f', helm:'#8a0b20', legs:'#5a0715', trim:'#ffd700', horns:true, glow:'255,40,80' },
+};
+const ARMOR_ORDER = ['none','bronze','knight','diamond','ruby'];
+const CUR_SYM = { crowns:'👑', diamonds:'💎', rubies:'🔴' };
+let armorsOwned = [], armorEquipped = 'none', kioskArmorSel = 1;
+let armorPrevLives = null, armorPlayGs = null;
+function armorDef(){ return ARMORS[armorEquipped] || null; }
+// Jeder verlorene Herzpunkt wird mit der Schutz-Chance der Rüstung zurückgegeben
+function armorTick(){
+  if(armorPrevLives!==null && lives<armorPrevLives){
+    const A=armorDef();
+    if(A){
+      let saved=0; for(let i=0;i<armorPrevLives-lives;i++) if(Math.random()<A.prot) saved++;
+      if(saved){
+        lives+=saved;
+        if(gs===S.GAMEOVER && lives>0 && armorPlayGs) gs=armorPlayGs;
+        for(let j=0;j<12;j++) hitFX.push({x:hero.x+hero.w/2,y:hero.y+hero.h/2,vx:(Math.random()-.5)*5,vy:-Math.random()*4,life:26,color:A.trim});
+        crownFX.push({x:hero.x+hero.w/2,y:hero.y-10,life:50,text:'🛡 Rüstung blockt!'});
+        playFX(1300,0.12,'triangle',0.15);
+      }
+    }
+  }
+  if(gs!==S.GAMEOVER) armorPlayGs=gs;
+  armorPrevLives=lives;
+}
 let goldRockets = false;
 // ── GOLD-MODUS: goldenes Schutzschild (360°, 3× so stark) + verstärkte Schüsse mit Goldschweif ──
 // Stufe 1: Gold-Schild + Goldschüsse · Stufe 2: + unendlich Schweben + Schallwellen (50) · Stufe 3: + Laser (80) + Eis-Raketen frieren 10 s ein
@@ -1010,6 +1062,7 @@ async function submitScore(name) {
 }
 
 function showNameInput(title='💀 GAME OVER'){
+  if(title==='💀 GAME OVER' && gs!==S.GAMEOVER) return;   // Rüstung hat den letzten Treffer abgewehrt
   document.getElementById('goTitle').textContent = title;
   document.getElementById('goScore').textContent = `Level ${Math.min(level,100)} | 👑 ${crowns} Kronen`;
   document.getElementById('nameInput').value='';
@@ -1124,7 +1177,7 @@ function saveGame(slotName) {
   const entry = {
     name:         slotName.trim() || 'Spielstand',
     date:         new Date().toLocaleString('de-DE'),
-    level, lives, crowns, diamonds, rubies, splashStars, iceMissiles, ingredients:{...ingredients}, potions:{...potions}, goldRockets, goldLevel, goldModeOn, bossWins:{...bossWins}, iceMultiLevel, backpackLevel, jetpackLevel,
+    level, lives, crowns, diamonds, rubies, splashStars, iceMissiles, ingredients:{...ingredients}, potions:{...potions}, goldRockets, saplings, armorsOwned:[...armorsOwned], armorEquipped, forestTrees: forestTrees.map(t=>({...t})), goldLevel, goldModeOn, bossWins:{...bossWins}, iceMultiLevel, backpackLevel, jetpackLevel,
     gameMode, sagaChapter, sagaUnlocked: {...sagaUnlocked},
     splashPlanetUnlocked,
     currentPlanet,
@@ -1161,6 +1214,10 @@ function loadGame(entry) {
   ingredients           = {herb:0,berry:0,mushroom:0,flower:0,feather:0,nut:0, ...(entry.ingredients||{})};
   potions               = {life:0,atk:0,shield:0, ...(entry.potions||{})};
   goldRockets           = entry.goldRockets ?? false;
+  saplings              = entry.saplings ?? 0;
+  armorsOwned           = Array.isArray(entry.armorsOwned) ? [...entry.armorsOwned] : [];
+  armorEquipped         = entry.armorEquipped ?? 'none'; armorPrevLives=null;
+  forestTrees           = Array.isArray(entry.forestTrees) ? entry.forestTrees.map(t=>({...t})) : [];
   goldLevel             = entry.goldLevel ?? (entry.goldModeUnlocked ? 1 : 0);
   goldModeOn            = entry.goldModeOn            ?? true;
   bossWins              = {...(entry.bossWins||{})};
@@ -1249,7 +1306,7 @@ function openLoadMenu() {
 //  GAME SETUP
 // ═══════════════════════════════════════════════════════════════════
 function startGame(){
-  level=1; lives=3; crowns=0; diamonds=0; iceMissiles=0; ingredients={herb:0,berry:0,mushroom:0,flower:0,feather:0,nut:0}; potions={life:0,atk:0,shield:0}; potionAtk=0; goldRockets=false; goldModeUnlocked=false; goldLevel=0; goldModeOn=true; bossWins={}; iceMultiLevel=0; backpackLevel=0; jetpackLevel=0; jetpackAuto=false; shieldHP=100; shieldBroken=false; shieldBlocked=0;
+  level=1; lives=3; crowns=0; diamonds=0; iceMissiles=0; ingredients={herb:0,berry:0,mushroom:0,flower:0,feather:0,nut:0}; potions={life:0,atk:0,shield:0}; potionAtk=0; goldRockets=false; saplings=0; forestTrees=[]; armorsOwned=[]; armorEquipped='none'; armorPrevLives=null; goldModeUnlocked=false; goldLevel=0; goldModeOn=true; bossWins={}; iceMultiLevel=0; backpackLevel=0; jetpackLevel=0; jetpackAuto=false; shieldHP=100; shieldBroken=false; shieldBlocked=0;
   diamondWeaponLevel=0; diamondShieldLevel=0; diamondRocketLevel=0; subjectQuestsDone={};
   rubies=0;
   diamondPlanetBossUnlocked=false; goldPlanetUnlocked=false;
@@ -2746,6 +2803,7 @@ function handleMissileTap(cx,cy){
 //  UPDATE
 // ═══════════════════════════════════════════════════════════════════
 function update(){
+  armorTick();
   // Speichern über Touch-Button (setzt justDown KeyP)
   if(justDown['KeyP'] && (gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog){ openSaveMenu(); clearJust(); return; }
   if(isMissileState()){ if(justDown['KeyR']) fireIceMissile(); steerIceMissiles(); bossAggroTick(); if(goldActive()) goldPowersTick(); missileHitTick(); }
@@ -3015,6 +3073,8 @@ function updateSurface(){
       }
     }
 
+    // Rüstungs-Reiter: Q wählt (auch bei kurzem Tastendruck)
+    if(kioskOpen && nearKiosk && justDown['KeyQ']){ if(kioskTab==='armor') kioskArmorSel=(kioskArmorSel+1)%ARMOR_ORDER.length; kioskTab='armor'; }
     // Kiosk tab switching and buying (while open)
     if(kioskOpen && nearKiosk && interactCooldown===0){
       if(keys['Digit1']||keys['Numpad1']){ kioskTab='weapon'; interactCooldown=20; }
@@ -3027,12 +3087,13 @@ function updateSurface(){
       if(keys['Digit8']||keys['Numpad8']){ kioskTab='hearts'; interactCooldown=20; }
       if(keys['Digit9']||keys['Numpad9']){ kioskTab='jetpack'; interactCooldown=20; }
       if(keys['Digit0']||keys['Numpad0']){ kioskTab='gold'; interactCooldown=20; }
+
       if(kioskTab==='gold' && keys['KeyG']){ kioskBuySpecial('goldToggle'); interactCooldown=20; }
       if(kioskTab==='ice' && keys['KeyM']){ kioskBuySpecial('multi'); interactCooldown=20; }
       if(kioskTab==='ice' && keys['KeyU']){ kioskBuySpecial('backpack'); interactCooldown=20; }
       if(kioskTab==='ice' && keys['KeyO']){ kioskBuySpecial('goldrocket'); interactCooldown=20; }
       if(keys['Escape']){ kioskOpen=false; interactCooldown=20; }
-      if(keys['Enter'] && (kioskTab==='ice'||kioskTab==='hearts'||kioskTab==='jetpack'||kioskTab==='gold')){
+      if(keys['Enter'] && (kioskTab==='ice'||kioskTab==='hearts'||kioskTab==='jetpack'||kioskTab==='gold'||kioskTab==='armor')){
         kioskBuySpecial(); interactCooldown=15;
       } else if(keys['Enter']){
         // Diamond upgrades use diamonds not crowns
@@ -3647,17 +3708,36 @@ function drawHero2(wx,wy){
   const f=hero.facing, cx=wx+hero.w/2;
   const shieldActive=keys['KeyS']&&!shieldBroken;
   const leg=hero.onGround&&(keys['ArrowLeft']||keys['ArrowRight'])?Math.sin(frame*0.25)*4:0;
-  ctx.fillStyle='#1a3d6e';
+  const AR=armorDef();
+  if(AR && AR.glow){
+    const gl=ctx.createRadialGradient(cx,wy+14,3,cx,wy+14,24);
+    gl.addColorStop(0,`rgba(${AR.glow},${0.25+0.1*Math.sin(frame*0.12)})`); gl.addColorStop(1,`rgba(${AR.glow},0)`);
+    ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(cx,wy+14,24,0,Math.PI*2); ctx.fill();
+  }
+  ctx.fillStyle=AR?AR.legs:'#1a3d6e';
   ctx.fillRect(cx-4+(f>0?leg:-leg),wy+20,6,10); ctx.fillRect(cx+1+(f>0?-leg:leg),wy+20,6,10);
-  ctx.fillStyle='#111';
+  ctx.fillStyle=AR?AR.trim:'#111';
   ctx.fillRect(cx-4+(f>0?leg:-leg),wy+29,7,4); ctx.fillRect(cx+1+(f>0?-leg:leg),wy+29,7,4);
-  ctx.fillStyle=COLORS.hero;
+  ctx.fillStyle=AR?AR.body:COLORS.hero;
   ctx.beginPath(); ctx.roundRect(cx-7,wy+8,14,14,3); ctx.fill();
-  ctx.fillStyle='#fff'; ctx.fillRect(cx-2,wy+10,4,8);
-  ctx.fillStyle=COLORS.hero;
+  if(AR){
+    // Brustpanzer mit Wappen
+    ctx.fillStyle=AR.trim; ctx.fillRect(cx-7,wy+8,14,2); ctx.fillRect(cx-7,wy+20,14,2);
+    ctx.beginPath(); ctx.moveTo(cx,wy+11); ctx.lineTo(cx+3,wy+14); ctx.lineTo(cx,wy+18); ctx.lineTo(cx-3,wy+14); ctx.closePath(); ctx.fill();
+  } else { ctx.fillStyle='#fff'; ctx.fillRect(cx-2,wy+10,4,8); }
+  ctx.fillStyle=AR?AR.body:COLORS.hero;
   ctx.fillRect(f>0?cx+7:cx-12,wy+10,5,9); ctx.fillRect(f>0?cx-12:cx+7,wy+11,5,8);
+  if(AR){ // Schulterplatten
+    ctx.fillStyle=AR.trim; ctx.beginPath(); ctx.arc(cx-8,wy+10,4,Math.PI,0); ctx.arc(cx+8,wy+10,4,Math.PI,0); ctx.fill();
+  }
   ctx.fillStyle='#ffd0b0'; ctx.beginPath(); ctx.arc(cx,wy+3,7,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#3a5fa0'; ctx.beginPath(); ctx.arc(cx,wy+2,7,Math.PI,0); ctx.fill();
+  ctx.fillStyle=AR?AR.helm:'#3a5fa0'; ctx.beginPath(); ctx.arc(cx,wy+2,7,Math.PI,0); ctx.fill();
+  if(AR){
+    ctx.fillStyle=AR.trim; ctx.fillRect(cx-7,wy+1,14,2);
+    if(AR.plume){ ctx.fillStyle=AR.plume; ctx.beginPath(); ctx.moveTo(cx,wy-5); ctx.quadraticCurveTo(cx-f*10,wy-12,cx-f*12,wy-2); ctx.quadraticCurveTo(cx-f*6,wy-6,cx,wy-3); ctx.fill(); }
+    if(AR.horns){ ctx.fillStyle=AR.trim; ctx.beginPath(); ctx.moveTo(cx-6,wy-2); ctx.lineTo(cx-10,wy-10); ctx.lineTo(cx-3,wy-4); ctx.moveTo(cx+6,wy-2); ctx.lineTo(cx+10,wy-10); ctx.lineTo(cx+3,wy-4); ctx.fill(); }
+    if(AR.sparkle && frame%10===0) hitFX.push({x:wx+Math.random()*hero.w,y:wy+Math.random()*hero.h,vx:0,vy:-0.5,life:18,color:AR.sparkle});
+  }
   ctx.fillStyle='rgba(100,200,255,0.6)'; ctx.beginPath(); ctx.arc(cx,wy+4,5,Math.PI,0); ctx.fill();
   ctx.fillStyle='rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.arc(cx-2,wy+1,2,0,Math.PI*2); ctx.fill();
   if(goldActive()){
@@ -4020,7 +4100,7 @@ function getSaveButtonRect(){ const k=HUD.k; return { x:8, y:HUD.h+6, w:Math.rou
 // ─── FX ──────────────────────────────────────────────────────────
 function drawFX(){
   ctx.font='28px Arial'; ctx.textAlign='center';
-  for(const c of crownFX){ ctx.globalAlpha=c.life/80; ctx.fillText('👑',c.x,c.y); }
+  for(const c of crownFX){ ctx.globalAlpha=Math.min(1,c.life/80); if(c.text){ const f=ctx.font; ctx.font='bold 14px Courier New'; ctx.fillStyle='#fff'; ctx.fillText(c.text,c.x,c.y); ctx.font=f; } else ctx.fillText('👑',c.x,c.y); }
   ctx.globalAlpha=1;
   for(const p of hitFX){
     ctx.globalAlpha=p.life/30; ctx.fillStyle=p.color;
@@ -4269,7 +4349,19 @@ function drawKioskBuilding(wx, gy){
 
 function kioskBuySpecial(kind){
   const no=()=>playFX(150,0.15,'square',0.1), ok=()=>playFX(880,0.2,'sine',0.2);
-  kind = kind || (kioskTab==='ice'?'missile':kioskTab==='hearts'?'heart':kioskTab==='jetpack'?'jetpack':kioskTab==='gold'?'gold':'');
+  kind = kind || (kioskTab==='ice'?'missile':kioskTab==='hearts'?'heart':kioskTab==='jetpack'?'jetpack':kioskTab==='gold'?'gold':kioskTab==='armor'?'armor:'+ARMOR_ORDER[kioskArmorSel]:'');
+  if(kind.startsWith('armor:')){
+    const id=kind.slice(6);
+    if(id==='none'){ armorEquipped='none'; return ok(); }
+    const A=ARMORS[id]; if(!A) return;
+    if(armorsOwned.includes(id)){ armorEquipped=id; return ok(); }
+    const have = A.cur==='crowns'?crowns : A.cur==='diamonds'?diamonds : rubies;
+    if(have<A.price) return no();
+    if(A.cur==='crowns') crowns-=A.price; else if(A.cur==='diamonds') diamonds-=A.price; else rubies-=A.price;
+    armorsOwned.push(id); armorEquipped=id;
+    playFX(523,0.2,'sine',0.25); setTimeout(()=>playFX(659,0.2,'sine',0.25),140); setTimeout(()=>playFX(1046,0.4,'sine',0.25),280);
+    autoUpdateSaves(); return;
+  }
   if(kind==='goldToggle'){ if(goldLevel<1 && !TEST_GOLD) return no(); goldModeOn=!goldModeOn; return goldModeOn?ok():playFX(330,0.15,'sine',0.12); }
   if(kind==='gold'){
     if(goldLevel>=3) return no();
@@ -4305,13 +4397,14 @@ const KIOSK_TABS=[
   {key:'rocket',label:'🚀 Rakete [3]'},{key:'diamond_w',label:'💎 D-Waffe [4]'},
   {key:'diamond_s',label:'💎 D-Schild [5]'},{key:'diamond_r',label:'💎 D-Rakete [6]'},
   {key:'ice',label:'❄️ Eiskanone [7]'},{key:'hearts',label:'❤️ Herzen [8]'},
-  {key:'jetpack',label:'🎒 Jetpack [9]'},{key:'gold',label:'✨ Gold [0]'}
+  {key:'jetpack',label:'🎒 Jetpack [9]'},{key:'gold',label:'✨ Gold [0]'},
+  {key:'armor',label:'🛡️ Rüstung [Q]'}
 ];
 function getKioskLayout(){
-  const dw=Math.min(W-20,620), dh=390, dx=W/2-dw/2, dy=H/2-dh/2-20;
+  const dw=Math.min(W-20,620), dh=430, dx=W/2-dw/2, dy=H/2-dh/2-20;
   const tw=(dw-40)/5, th=32;
   const tabs=KIOSK_TABS.map((t,i)=>({...t, x:dx+20+(i%5)*tw, y:dy+52+Math.floor(i/5)*(th+6), w:tw-6, h:th}));
-  return {dw,dh,dx,dy,tabs,cy:dy+136};
+  return {dw,dh,dx,dy,tabs,cy:dy+174};
 }
 function renderKiosk(){
   if(!kioskOpen) return;
@@ -4330,7 +4423,7 @@ function renderKioskInner(){
   ctx.beginPath(); ctx.roundRect(dx,dy,dw,dh,16); ctx.stroke();
 
   ctx.fillStyle='#ffd700'; ctx.font='bold 15px Courier New'; ctx.textAlign='center';
-  ctx.fillText('🛒 KIOSK  (1–0 wählen, ENTER kaufen, ESC schließen)',W/2,dy+22);
+  ctx.fillText('🛒 KIOSK  (1–0 / Q wählen, ENTER kaufen, ESC schließen)',W/2,dy+22);
   ctx.fillStyle='#fa0'; ctx.font='14px Courier New';
   ctx.fillText(`Kronen: 👑 ${crowns}    Diamanten: 💎 ${diamonds}`,W/2,dy+42);
 
@@ -4346,9 +4439,10 @@ function renderKioskInner(){
   // Special tabs: Eiskanone / Herzen / Jetpack
   kioskHits=[];
   const kBtn=(x,y,w,h,label,can,kind)=>{
-    ctx.fillStyle=can?'rgba(0,130,60,0.9)':'rgba(70,70,70,0.6)';
+    const done=!can && String(label).startsWith('✅');
+    ctx.fillStyle=can?'rgba(0,130,60,0.9)':done?'rgba(30,80,40,0.6)':'rgba(70,70,70,0.6)';
     ctx.beginPath(); ctx.roundRect(x,y,w,h,9); ctx.fill();
-    ctx.fillStyle=can?'#fff':'#f99'; ctx.font='bold 12px Courier New'; ctx.textAlign='center';
+    ctx.fillStyle=can?'#fff':done?'#bfb':'#f99'; ctx.font='bold 12px Courier New'; ctx.textAlign='center';
     ctx.fillText(label, x+w/2, y+h/2+4);
     kioskHits.push({x,y,w,h,kind});
   };
@@ -4419,6 +4513,34 @@ function renderKioskInner(){
     const nxt=goldLevel<3?GOLD_COSTS[goldLevel+1]:0;
     kBtn(W/2-250, dy+dh-48, 300, 36, goldLevel>=3?'✅ Höchste Stufe':(rubies>=nxt?`ENTER: Stufe ${goldLevel+1} (${nxt} 🔴)`:`Stufe ${goldLevel+1}: noch ${nxt-rubies} 🔴`), goldLevel<3&&rubies>=nxt, 'gold');
     kBtn(W/2+60, dy+dh-48, 190, 36, goldModeOn?'G: Gold AUS':'G: Gold AN', goldLevel>=1||TEST_GOLD>0, 'goldToggle');
+    return;
+  }
+  if(kioskTab==='armor'){
+    const cy=KL.cy, x0=dx+20, rw=dw-40;
+    ctx.textAlign='center'; ctx.fillStyle='#e6d3a3'; ctx.font='bold 15px Courier New';
+    ctx.fillText('🛡️ RÜSTUNGEN – wehren Treffer ab und ändern das Outfit', W/2, cy-6);
+    ARMOR_ORDER.forEach((id,i)=>{
+      const A=ARMORS[id], y=cy+6+i*44, owned=id==='none'||armorsOwned.includes(id), on=armorEquipped===id, sel=kioskArmorSel===i;
+      ctx.fillStyle=on?'rgba(30,110,50,0.7)':sel?'rgba(110,80,20,0.6)':'rgba(40,40,60,0.5)';
+      ctx.strokeStyle=sel?'#ffd700':'#554'; ctx.lineWidth=sel?2:1;
+      ctx.beginPath(); ctx.roundRect(x0,y,rw,38,8); ctx.fill(); ctx.stroke();
+      // kleine Vorschau-Figur
+      const px=x0+22, py=y+6;
+      ctx.fillStyle=A?A.body:COLORS.hero; ctx.fillRect(px-6,py+10,12,12);
+      ctx.fillStyle=A?A.helm:'#3a5fa0'; ctx.beginPath(); ctx.arc(px,py+6,7,0,Math.PI*2); ctx.fill();
+      if(A){ ctx.fillStyle=A.trim; ctx.fillRect(px-6,py+14,12,2); }
+      ctx.textAlign='left'; ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New';
+      ctx.fillText(A?`${A.icon} ${A.name}`:'🧑‍🚀 Standard-Anzug', x0+44, y+16);
+      ctx.fillStyle='#bbb'; ctx.font='11px Courier New';
+      ctx.fillText(A?`${Math.round(A.prot*100)} % Chance, jeden Treffer abzuwehren`:'kein Zusatzschutz', x0+44, y+31);
+      let lab, can;
+      if(on){ lab='✅ Angezogen'; can=false; }
+      else if(owned){ lab='Anziehen'; can=true; }
+      else { const have=A.cur==='crowns'?crowns:A.cur==='diamonds'?diamonds:rubies; can=have>=A.price; lab=can?`Kaufen ${A.price} ${CUR_SYM[A.cur]}`:`${A.price} ${CUR_SYM[A.cur]} (fehlen ${A.price-have})`; }
+      kBtn(x0+rw-196, y+4, 188, 30, lab, can, 'armor:'+id);
+    });
+    ctx.textAlign='center'; ctx.fillStyle='#998'; ctx.font='11px Courier New';
+    ctx.fillText('Q: nächste Rüstung auswählen · ENTER: kaufen / anziehen · oder antippen', W/2, dy+dh-14);
     return;
   }
   if(kioskTab==='hearts'){
@@ -5628,12 +5750,13 @@ function drawExchangeKiosk(wx, gy){
 //  WALDPLANET: Bäume mit Bomben (B) wegsprengen → Zutaten oder Waldgeister
 // ═══════════════════════════════════════════════════════════════════
 function setupForestWorld(rng, gy){
-  platforms=[]; forestBombs=[]; forestPickups=[]; forestMonsters=[]; forestTrees=[];
+  platforms=[]; forestBombs=[]; forestPickups=[]; forestMonsters=[];
+  if(forestTrees.length) return;                      // der Wald bleibt erhalten (Stümpfe, junge Bäume)
   const keys=Object.keys(INGREDIENTS);
   for(let x=260; x<WORLD_W-120; x+=150+Math.floor(rng()*70)){
     if(Math.abs(x-WORLD_W/2)<140) continue;              // Platz für die Rakete
     const monster = rng()<0.35;
-    forestTrees.push({ x, h:150+Math.floor(rng()*60), kind:rng()<0.5?'pine':'oak', alive:true,
+    forestTrees.push({ x, h:150+Math.floor(rng()*60), kind:rng()<0.5?'pine':'oak', alive:true, plantedAt:null,
       content: monster ? 'monster' : keys[Math.floor(rng()*keys.length)] });
   }
 }
@@ -5648,13 +5771,16 @@ function forestExplode(b){
     hitFX.push({x:b.x,y:b.y-10,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,life:30+Math.random()*15,color:j%3?'#ffb030':'#7cff6b'}); }
   playFX(90,0.35,'sawtooth',0.25);
   for(const t of forestTrees){
-    if(!t.alive || Math.abs(t.x-b.x)>R) continue;
-    t.alive=false;
+    if(Math.abs(t.x-b.x)>R) continue;
+    if(!t.alive){ if(t.plantedAt){ t.plantedAt=null; for(let j=0;j<6;j++) hitFX.push({x:t.x,y:gy-12,vx:(Math.random()-.5)*4,vy:-Math.random()*3,life:20,color:'#7c5'}); } continue; }
+    t.alive=false; t.plantedAt=null;
     for(let j=0;j<10;j++) hitFX.push({x:t.x,y:gy-t.h*0.6,vx:(Math.random()-.5)*6,vy:-Math.random()*5,life:30,color:'#3f8f3a'});
     if(t.content==='monster'){
-      const m=planetMonsterMul();
-      forestMonsters.push({x:t.x-20,y:gy-48,w:40,h:48,hp:Math.round(8*m),maxHp:Math.round(8*m),vx:0,flash:0,dead:false,deadTimer:0});
-      playFX(160,0.3,'square',0.15);
+      const m=planetMonsterMul(), big=Math.random()<0.05;     // ungefähr jeder 20. ist ein großer Waldgeist
+      const w=big?84:40, h=big?100:48, hp=Math.round((big?40:8)*m);
+      forestMonsters.push({x:t.x-w/2,y:gy-h,w,h,hp,maxHp:hp,vx:0,flash:0,dead:false,deadTimer:0,big});
+      playFX(big?80:160,big?0.6:0.3,'square',big?0.25:0.15);
+      if(big){ for(let j=0;j<20;j++) hitFX.push({x:t.x,y:gy-50,vx:(Math.random()-.5)*8,vy:-Math.random()*6,life:40,color:'#400'}); }
     } else {
       forestPickups.push({x:t.x,y:gy-26,type:t.content,bob:Math.random()*6});
     }
@@ -5662,6 +5788,16 @@ function forestExplode(b){
   for(const m of forestMonsters){ if(!m.dead && Math.abs(m.x+m.w/2-b.x)<R){ m.hp-=6; m.flash=10; } }
 }
 function updateForest(gy){
+  const se=SEASONS[forestSeason()], pd=PLANET_DATA.forest;
+  pd.skyTop=se.sky[0]; pd.skyBot=se.sky[1]; pd.groundTop=se.groundTop;
+  const now=Date.now(), keysI=Object.keys(INGREDIENTS);
+  for(const t of forestTrees){
+    if(!t.alive && t.plantedAt && now-t.plantedAt>=GROW_MS){
+      t.alive=true; t.plantedAt=null;
+      t.content = Math.random()<0.35 ? 'monster' : keysI[Math.floor(Math.random()*keysI.length)];
+      for(let j=0;j<12;j++) hitFX.push({x:t.x,y:gy-t.h*0.6,vx:(Math.random()-.5)*4,vy:-Math.random()*3,life:30,color:'#9f6'});
+    }
+  }
   for(const b of forestBombs){ b.t--; if(b.t<=0) forestExplode(b); }
   forestBombs=forestBombs.filter(b=>b.t>0);
   // Zutaten einsammeln
@@ -5678,7 +5814,7 @@ function updateForest(gy){
     if(m.dead){ m.deadTimer++; continue; }
     if(m.flash>0) m.flash--;
     const dx=(hero.x+hero.w/2)-(m.x+m.w/2);
-    m.vx = Math.abs(dx)<650 ? Math.sign(dx)*(kidsMode?0.9:1.5) : 0;
+    m.vx = Math.abs(dx)<650 ? Math.sign(dx)*(m.big?(kidsMode?0.6:1.0):(kidsMode?0.9:1.5)) : 0;
     m.x+=m.vx;
     // Wasserschüsse
     for(let i=pProjectiles.length-1;i>=0;i--){
@@ -5689,7 +5825,7 @@ function updateForest(gy){
       }
     }
     if(m.hp<=0 && !m.dead){
-      m.dead=true; crowns+=3; playFX(660,0.25,'triangle',0.2);
+      m.dead=true; crowns+=m.big?20:3; playFX(660,0.25,'triangle',0.2);
       if(Math.random()<0.5){ const k=Object.keys(INGREDIENTS); forestPickups.push({x:m.x+m.w/2,y:gy-26,type:k[Math.floor(Math.random()*k.length)],bob:0}); }
       continue;
     }
@@ -5697,32 +5833,78 @@ function updateForest(gy){
     if(hero.invTimer<=0 && circRect(m.x+m.w/2,m.y+m.h/2,m.w/2,hero.x,hero.y,hero.w,hero.h)){
       if(keys['KeyS'] && !shieldBroken){ m.x-=Math.sign(dx)*40; shieldBlocked+=goldActive()?1/3:1; }
       else {
-        lives--; hero.invTimer=90; playFX(150,0.3,'sawtooth',0.2);
-        if(lives<=0){ gs=S.GAMEOVER; setTimeout(()=>showNameInput(),400); }
+        lives-=m.big?2:1; hero.invTimer=90; playFX(150,0.3,'sawtooth',0.2);
+        if(lives<=0){ lives=0; gs=S.GAMEOVER; setTimeout(()=>showNameInput(),400); }
       }
     }
   }
   forestMonsters=forestMonsters.filter(m=>!(m.dead && m.deadTimer>30));
 }
+function forestNearStump(){
+  const hx=hero.x+hero.w/2;
+  let best=null, bd=70;
+  for(const t of forestTrees){ if(t.alive || t.plantedAt) continue; const d=Math.abs(t.x-hx); if(d<bd){ bd=d; best=t; } }
+  return best;
+}
+function forestPlant(){
+  if(gs!==S.SURFACE || currentPlanet!=='forest' || inRocket) return;
+  const t=forestNearStump();
+  if(!t){ return; }
+  if(saplings<=0){ playFX(150,0.15,'square',0.1); hitFX.push({x:t.x,y:groundY()-40,vx:0,vy:-1,life:40,color:'#f88'}); return; }
+  saplings--; t.plantedAt=Date.now();
+  for(let j=0;j<10;j++) hitFX.push({x:t.x,y:groundY()-10,vx:(Math.random()-.5)*3,vy:-Math.random()*3,life:26,color:'#7f5'});
+  playFX(700,0.15,'sine',0.15);
+}
 function drawForestTrees(gy){
+  const si=forestSeason(), now=Date.now();
+  const leafCols=[['#3aa64a','#2f8f3c','#ffb7d5'],['#2f8f3c','#3aa64a',null],['#d9822b','#c0392b','#f1c40f'],[null,null,null]][si];
   for(const t of forestTrees){
     const x=t.x;
     if(!t.alive){
       ctx.fillStyle='#5a3a1c'; ctx.fillRect(x-14,gy-16,28,16);
-      ctx.fillStyle='#7a5530'; ctx.beginPath(); ctx.ellipse(x,gy-16,14,5,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=si===3?'#f4f8ff':'#7a5530'; ctx.beginPath(); ctx.ellipse(x,gy-16,14,5,0,0,Math.PI*2); ctx.fill();
+      if(t.plantedAt){
+        const f=Math.min(1,(now-t.plantedAt)/GROW_MS), hh=14+f*60;
+        ctx.strokeStyle='#5b3'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(x,gy-16); ctx.lineTo(x,gy-16-hh); ctx.stroke();
+        ctx.fillStyle=si===2?'#e08a2b':'#4c4';
+        for(let i=0;i<3;i++){ const ly=gy-16-hh*(0.45+i*0.25); ctx.beginPath(); ctx.ellipse(x-7,ly,7,4,-0.5,0,Math.PI*2); ctx.ellipse(x+7,ly-3,7,4,0.5,0,Math.PI*2); ctx.fill(); }
+        const rest=Math.max(0,GROW_MS-(now-t.plantedAt)), mm=Math.floor(rest/60000), ss=Math.floor(rest/1000)%60;
+        ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.beginPath(); ctx.roundRect(x-34,gy-hh-50,68,18,6); ctx.fill();
+        ctx.fillStyle='#bfb'; ctx.font='bold 11px Courier New'; ctx.textAlign='center';
+        ctx.fillText(`🌱 ${Math.floor(f*100)}% ${mm}:${String(ss).padStart(2,'0')}`, x, gy-hh-37);
+      }
       continue;
     }
     ctx.fillStyle='#4a2f16'; ctx.fillRect(x-10,gy-t.h*0.45,20,t.h*0.45);
     if(t.kind==='pine'){
       for(let i=0;i<3;i++){
         const yb=gy-t.h*0.3-i*t.h*0.22, wdt=70-i*16;
-        ctx.fillStyle=i%2?'#1f6b2e':'#2a8a3a';
+        ctx.fillStyle=si===3?(i%2?'#1a4f2a':'#215d31'):(i%2?'#1f6b2e':'#2a8a3a');
         ctx.beginPath(); ctx.moveTo(x-wdt,yb); ctx.lineTo(x,yb-t.h*0.38); ctx.lineTo(x+wdt,yb); ctx.closePath(); ctx.fill();
+        if(si===3){ ctx.fillStyle='#f4f8ff'; ctx.beginPath(); ctx.moveTo(x-wdt*0.55,yb-t.h*0.1); ctx.lineTo(x,yb-t.h*0.38); ctx.lineTo(x+wdt*0.55,yb-t.h*0.1); ctx.quadraticCurveTo(x,yb-t.h*0.18,x-wdt*0.55,yb-t.h*0.1); ctx.fill(); }
       }
     } else {
       const cy=gy-t.h*0.62;
-      [[0,0,52],[-34,16,36],[34,14,38],[0,-30,40]].forEach(([ox,oy,r],i)=>{
-        ctx.fillStyle=i%2?'#2f8f3c':'#3aa64a'; ctx.beginPath(); ctx.arc(x+ox,cy+oy,r,0,Math.PI*2); ctx.fill(); });
+      if(si===3){
+        // kahler Laubbaum mit Schnee
+        ctx.strokeStyle='#4a2f16'; ctx.lineWidth=5;
+        [[-40,-30],[40,-26],[-22,-60],[24,-58],[0,-75]].forEach(([dx2,dy2])=>{ ctx.beginPath(); ctx.moveTo(x,cy+20); ctx.lineTo(x+dx2,cy+dy2); ctx.stroke();
+          ctx.fillStyle='#f4f8ff'; ctx.beginPath(); ctx.ellipse(x+dx2,cy+dy2,8,3,0,0,Math.PI*2); ctx.fill(); });
+      } else {
+        [[0,0,52],[-34,16,36],[34,14,38],[0,-30,40]].forEach(([ox,oy,r],i)=>{
+          ctx.fillStyle=si===2?(['#d9822b','#c0392b','#e6a01e','#b5521b'][i]):(i%2?leafCols[1]:leafCols[0]);
+          ctx.beginPath(); ctx.arc(x+ox,cy+oy,r,0,Math.PI*2); ctx.fill(); });
+        if(leafCols[2] && si!==2){ ctx.fillStyle=leafCols[2]; for(let i=0;i<7;i++){ ctx.beginPath(); ctx.arc(x+Math.cos(i*2.3+x)*36,cy+Math.sin(i*1.7+x)*28,4,0,Math.PI*2); ctx.fill(); } }
+        if(si===1){ ctx.fillStyle='#e74c3c'; for(let i=0;i<5;i++){ ctx.beginPath(); ctx.arc(x+Math.cos(i*2.1+x)*30,cy+10+Math.sin(i*1.3+x)*20,4,0,Math.PI*2); ctx.fill(); } }
+      }
+    }
+  }
+  // Wetter: Herbstblätter / Schneeflocken / Frühlingsblüten
+  if(si!==1){
+    for(let i=0;i<45;i++){
+      const sx=camX+((i*137+frame*(si===3?0.4:0.9))%W), sy=((i*91+frame*(0.8+(i%3)*0.4))%H);
+      if(si===3){ ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(sx,sy,2+(i%3),0,Math.PI*2); ctx.fill(); }
+      else { ctx.fillStyle=si===2?['#d9822b','#c0392b','#f1c40f'][i%3]:'#ffc0dc'; ctx.save(); ctx.translate(sx,sy); ctx.rotate(frame*0.03+i); ctx.beginPath(); ctx.ellipse(0,0,5,2.5,0,0,Math.PI*2); ctx.fill(); ctx.restore(); }
     }
   }
 }
@@ -5748,15 +5930,19 @@ function drawForestWorld(gy){
     const bob=Math.sin(frame*0.2+m.x)*2;
     ctx.fillStyle=m.flash?'#fff':'#5b3a1e'; ctx.beginPath(); ctx.roundRect(m.x,m.y+bob,m.w,m.h,8); ctx.fill();
     ctx.fillStyle='#2f7a2a'; ctx.beginPath(); ctx.arc(m.x+m.w/2,m.y+bob,18,Math.PI,0); ctx.fill();
-    ctx.fillStyle='#ffdd33'; ctx.beginPath(); ctx.arc(m.x+12,m.y+18+bob,5,0,Math.PI*2); ctx.arc(m.x+m.w-12,m.y+18+bob,5,0,Math.PI*2); ctx.fill();
+    if(m.big){ ctx.fillStyle='#2a1a0a'; ctx.beginPath(); ctx.moveTo(m.x+10,m.y+bob); ctx.lineTo(m.x+4,m.y-26+bob); ctx.lineTo(m.x+24,m.y+bob); ctx.moveTo(m.x+m.w-10,m.y+bob); ctx.lineTo(m.x+m.w-4,m.y-26+bob); ctx.lineTo(m.x+m.w-24,m.y+bob); ctx.fill(); }
+    ctx.fillStyle=m.big?'#ff3030':'#ffdd33'; const er=m.big?9:5, ey=m.big?32:18;
+    ctx.beginPath(); ctx.arc(m.x+m.w*0.3,m.y+ey+bob,er,0,Math.PI*2); ctx.arc(m.x+m.w*0.7,m.y+ey+bob,er,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle='#200'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(m.x+8,m.y+10+bob); ctx.lineTo(m.x+17,m.y+14+bob); ctx.moveTo(m.x+m.w-8,m.y+10+bob); ctx.lineTo(m.x+m.w-17,m.y+14+bob); ctx.stroke();
-    ctx.fillStyle='#200'; ctx.fillRect(m.x+12,m.y+32+bob,m.w-24,5);
+    ctx.fillStyle='#200'; ctx.fillRect(m.x+12,m.y+(m.big?66:32)+bob,m.w-24,m.big?9:5);
+    if(m.big){ ctx.fillStyle='#fff'; for(let i=0;i<5;i++) ctx.fillRect(m.x+16+i*11,m.y+66+bob,5,6); }
     ctx.fillStyle='#400'; ctx.fillRect(m.x,m.y-10,m.w,4); ctx.fillStyle='#6f6'; ctx.fillRect(m.x,m.y-10,m.w*Math.max(0,m.hp)/m.maxHp,4);
     ctx.globalAlpha=1;
   }
 }
 function forestInfoText(){
-  return '🌲 Waldplanet  |  B: Bombe  |  '+Object.keys(INGREDIENTS).map(k=>INGREDIENTS[k].icon+(ingredients[k]||0)).join(' ');
+  const se=SEASONS[forestSeason()];
+  return `${se.icon} ${se.name} · Tag ${forestDay()%1000}  |  B: Bombe · E: Pflanzen 🌱${saplings}  |  `+Object.keys(INGREDIENTS).map(k=>INGREDIENTS[k].icon+(ingredients[k]||0)).join(' ');
 }
 function getBombButton(){ return { x:W-190, y:H-150, w:170, h:52 }; }
 
@@ -5844,6 +6030,76 @@ function handleBrewTap(sx,sy){
   if(h){ if(h.id==='close') brewOpen=false; else doBrew(h.id); }
   return true;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  BAUMSCHULE (Erde, x=1880): Setzlinge kaufen (1 💎), Rucksack max. 20
+// ═══════════════════════════════════════════════════════════════════
+const NURSERY_X = 1880;
+function nearNursery(){ return gs===S.SURFACE && currentPlanet==='earth' && !inRocket && Math.abs(hero.x-NURSERY_X)<90; }
+function freeStumps(){ return forestTrees.filter(t=>!t.alive && !t.plantedAt).length; }
+function buySaplings(n){
+  const space=SAPLING_MAX-saplings;
+  if(n==='fill') n=space;
+  n=Math.min(n,space,Math.floor(diamonds/SAPLING_COST));
+  if(n<=0){ nurseryMsg = space<=0?'🎒 Rucksack voll (20 Setzlinge)':'Zu wenig 💎'; nurseryMsgCol='#f88'; playFX(150,0.15,'square',0.1); return; }
+  diamonds-=n*SAPLING_COST; saplings+=n;
+  nurseryMsg=`+${n} 🌱 Setzling${n>1?'e':''} gekauft`; nurseryMsgCol='#8f8'; playFX(784,0.2,'sine',0.2);
+}
+function drawNursery(x, gy){
+  const near=nearNursery();
+  // Gewächshaus
+  ctx.fillStyle='rgba(180,240,200,0.35)'; ctx.strokeStyle='#cfe'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x-60,gy); ctx.lineTo(x-60,gy-60); ctx.lineTo(x,gy-95); ctx.lineTo(x+60,gy-60); ctx.lineTo(x+60,gy); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x,gy-95); ctx.lineTo(x,gy); ctx.moveTo(x-60,gy-60); ctx.lineTo(x+60,gy-60); ctx.stroke();
+  for(let i=0;i<4;i++){ const px=x-42+i*28; ctx.fillStyle='#a0522d'; ctx.fillRect(px-7,gy-14,14,14); ctx.fillStyle='#3c3'; ctx.beginPath(); ctx.moveTo(px,gy-14); ctx.lineTo(px-8,gy-30); ctx.lineTo(px+8,gy-30); ctx.fill(); }
+  ctx.fillStyle='#2e7d32'; ctx.beginPath(); ctx.roundRect(x-62,gy-128,124,26,6); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New'; ctx.textAlign='center'; ctx.fillText('🌳 BAUMSCHULE', x, gy-110);
+  if(near){ ctx.fillStyle='rgba(200,255,200,0.95)'; ctx.font='bold 12px monospace'; ctx.fillText('T: Setzlinge kaufen', x, gy-136); }
+}
+function getNurseryOpenButton(){ return { x:W/2-110, y:H-120, w:220, h:46 }; }
+function renderNursery(){
+  if(!nearNursery()){ nurseryOpen=false; return; }
+  if(!nurseryOpen){
+    const b=getNurseryOpenButton();
+    ctx.fillStyle='rgba(30,110,50,0.9)'; ctx.strokeStyle='#bfb'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,12); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='bold 16px Courier New'; ctx.textAlign='center'; ctx.fillText('🌳 Baumschule (T)', W/2, b.y+29);
+    return;
+  }
+  const PW=540, PH=360, PX=W/2-PW/2, PY=H/2-PH/2-10;
+  uiBegin('nursery', uiFitK(PW+20, PH+30), W/2, H/2);
+  nurseryHits=[];
+  ctx.fillStyle='rgba(8,24,12,0.96)'; ctx.beginPath(); ctx.roundRect(PX,PY,PW,PH,16); ctx.fill();
+  ctx.strokeStyle='#7c7'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.roundRect(PX,PY,PW,PH,16); ctx.stroke();
+  ctx.textAlign='center'; ctx.fillStyle='#bfb'; ctx.font='bold 19px Courier New'; ctx.fillText('🌳 BAUMSCHULE', W/2, PY+30);
+  ctx.fillStyle='#ffd700'; ctx.font='14px Courier New';
+  ctx.fillText(`💎 ${diamonds}   ·   🎒 Setzlinge: ${saplings}/${SAPLING_MAX}`, W/2, PY+56);
+  ctx.fillStyle='#aca'; ctx.font='12px Courier New';
+  ctx.fillText(`Freie Baumstümpfe auf dem Waldplaneten: ${freeStumps()}`, W/2, PY+76);
+  ctx.fillText('Nur weggesprengte Bäume können nachgepflanzt werden · Wachsen: 2 Tage (2 Min.)', W/2, PY+94);
+  [['1',1,'1 Setzling'],['2',5,'5 Setzlinge'],['3','fill','Auffüllen bis 20']].forEach(([k,n,l],i)=>{
+    const cost=(n==='fill'?SAPLING_MAX-saplings:n)*SAPLING_COST, can=saplings<SAPLING_MAX && diamonds>=Math.min(cost||1, SAPLING_COST);
+    const b={x:PX+40, y:PY+110+i*56, w:PW-80, h:46};
+    ctx.fillStyle=can?'rgba(40,120,50,0.85)':'rgba(60,60,60,0.6)'; ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,10); ctx.fill();
+    ctx.fillStyle=can?'#fff':'#999'; ctx.font='bold 16px Courier New';
+    ctx.fillText(`[${k}]  🌱 ${l}  (${cost} 💎)`, W/2, b.y+29);
+    nurseryHits.push({...b, n});
+  });
+  if(nurseryMsg){ ctx.fillStyle=nurseryMsgCol; ctx.font='bold 14px Courier New'; ctx.fillText(nurseryMsg, W/2, PY+PH-40); }
+  const cb={x:W/2-90,y:PY+PH-30,w:180,h:24};
+  ctx.fillStyle='rgba(120,30,30,0.85)'; ctx.beginPath(); ctx.roundRect(cb.x,cb.y,cb.w,cb.h,8); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New'; ctx.fillText('ESC: Schließen', W/2, cb.y+17);
+  nurseryHits.push({...cb, n:'close'});
+  uiEnd();
+}
+function handleNurseryTap(sx,sy){
+  if(!nearNursery()) return false;
+  if(!nurseryOpen){ const b=getNurseryOpenButton(); if(sx>=b.x&&sx<=b.x+b.w&&sy>=b.y&&sy<=b.y+b.h){ nurseryOpen=true; nurseryMsg=''; return true; } return false; }
+  const q=uiInv('nursery',sx,sy); const h=nurseryHits.find(b=>q.x>=b.x&&q.x<=b.x+b.w&&q.y>=b.y&&q.y<=b.y+b.h);
+  if(h){ if(h.n==='close') nurseryOpen=false; else buySaplings(h.n); }
+  return true;
+}
+
 // Trank-Gürtel (Erde/Planeten und Bosskämpfe)
 function potionBeltRects(){
   const out=[]; let x=12; const y=H-96;
@@ -5875,9 +6131,19 @@ function handlePotionTap(sx,sy){
 function handleForestTap(sx,sy){
   if(gs!==S.SURFACE || currentPlanet!=='forest' || inRocket) return false;
   const b=getBombButton(); if(sx>=b.x&&sx<=b.x+b.w&&sy>=b.y&&sy<=b.y+b.h){ forestPlaceBomb(); return true; }
+  const pb=getPlantButton(); if(forestNearStump() && sx>=pb.x&&sx<=pb.x+pb.w&&sy>=pb.y&&sy<=pb.y+pb.h){ forestPlant(); return true; }
   return false;
 }
+function getPlantButton(){ return { x:W-190, y:H-212, w:170, h:52 }; }
 function drawForestButton(){
+  if(gs===S.SURFACE && currentPlanet==='forest' && !inRocket && forestNearStump()){
+    const b=getPlantButton(), ok=saplings>0;
+    ctx.fillStyle=ok?'rgba(40,120,40,0.9)':'rgba(60,60,60,0.7)'; ctx.strokeStyle=ok?'#9f9':'#666'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,12); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='bold 15px Courier New'; ctx.textAlign='center';
+    ctx.fillText(ok?`🌱 Pflanzen (E) ×${saplings}`:'🌱 Keine Setzlinge', b.x+b.w/2, b.y+22);
+    ctx.font='11px Courier New'; ctx.fillText(ok?'wächst in 2 Tagen (2 Min.)':'Baumschule auf der Erde', b.x+b.w/2, b.y+40);
+  }
   if(gs!==S.SURFACE || currentPlanet!=='forest' || inRocket) return;
   const b=getBombButton(), ready=!forestBombs.length;
   ctx.fillStyle=ready?'rgba(140,60,20,0.9)':'rgba(60,60,60,0.7)'; ctx.strokeStyle=ready?'#fc8':'#666'; ctx.lineWidth=2;
@@ -8575,7 +8841,7 @@ canvas.addEventListener('click', e=>{
     return;
   }
   { const r=canvas.getBoundingClientRect(); const sx=(e.clientX-r.left)*(W/r.width), sy=(e.clientY-r.top)*(H/r.height);
-    if(!dialog && (handleExchangeTap(sx,sy)||handleBrewTap(sx,sy)||handleForestTap(sx,sy)||handlePotionTap(sx,sy))) return;
+    if(!dialog && (handleExchangeTap(sx,sy)||handleBrewTap(sx,sy)||handleNurseryTap(sx,sy)||handleForestTap(sx,sy)||handlePotionTap(sx,sy))) return;
     if(handleMissileTap(sx,sy)) return; }
   { const r=canvas.getBoundingClientRect();
     const cx=(e.clientX-r.left)*(W/r.width), cy=(e.clientY-r.top)*(H/r.height);
@@ -8611,7 +8877,7 @@ canvas.addEventListener('click', e=>{
     const KL=getKioskLayout();
     const t=KL.tabs.find(t=>mx>=t.x&&mx<=t.x+t.w&&my>=t.y&&my<=t.y+t.h);
     if(t){ kioskTab=t.key; return; }
-    if(kioskTab==='ice'||kioskTab==='hearts'||kioskTab==='jetpack'||kioskTab==='gold'){
+    if(kioskTab==='ice'||kioskTab==='hearts'||kioskTab==='jetpack'||kioskTab==='gold'||kioskTab==='armor'){
       const h=kioskHits.find(b=>mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h);
       if(h) kioskBuySpecial(h.kind);
       return;
@@ -8932,6 +9198,7 @@ function renderSurface(){
     drawKioskBuilding(1320, gy);
     drawChest(1490, gy, false);  // Immer sichtbar
     drawBrewStand(BREW_X, gy);
+    drawNursery(NURSERY_X, gy);
   }
 
   // Platforms
@@ -9050,7 +9317,7 @@ function renderSurface(){
     const KIOSK_X=1320;
     // Wegweiser (immer sichtbar auf der Erde)
     ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font='12px Courier New'; ctx.textAlign='center';
-    ctx.fillText('💱(990)  🏠(1130)  🛒(1320)  🎁(1490)  ⚗️(1700)  🚀Rakete',W/2,H-32);
+    ctx.fillText('💱(990)  🏠(1130)  🛒(1320)  🎁(1490)  ⚗️(1700)  🌳(1880)  🚀Rakete',W/2,H-32);
     // Show hero position so player knows where they are
     ctx.fillStyle='rgba(180,220,255,0.7)'; ctx.font='12px monospace'; ctx.textAlign='right';
     ctx.fillText('Pos: '+Math.floor(hero.x), W-10, H-32);
@@ -9082,6 +9349,7 @@ function renderSurface(){
   renderKiosk();
   renderExchange();
   renderBrew();
+  renderNursery();
   drawForestButton();
 
   // "H" key hint near house on Earth (proximity label drawn in drawHouse already)
@@ -9808,7 +10076,7 @@ function handleGameAreaTap(x, y) {
 
   // 💾 Save-Button oben links
   if ((gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog && (()=>{const b=getSaveButtonRect(); return cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h;})()) { openSaveMenu(); return; }
-  if (!dialog && (handleExchangeTap(cx, cy)||handleBrewTap(cx, cy)||handleForestTap(cx, cy)||handlePotionTap(cx, cy))) return;
+  if (!dialog && (handleExchangeTap(cx, cy)||handleBrewTap(cx, cy)||handleNurseryTap(cx, cy)||handleForestTap(cx, cy)||handlePotionTap(cx, cy))) return;
   // Eis-Lenkrakete button in boss fights
   if (handleMissileTap(cx, cy)) return;
   // Question gates (Rubin / Wasserbomben)
