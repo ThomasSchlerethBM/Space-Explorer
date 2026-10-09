@@ -612,6 +612,23 @@ window.addEventListener('keydown', e => {
   // Diamond planet quest input (answer handling)
   if(questState && gs===S.SURFACE){ e.preventDefault(); handleQuestKey(e.code, e.key); return; }
 
+  // Braustand (Erde)
+  if(brewOpen && nearBrew()){
+    e.preventDefault();
+    if(e.code==='Escape'||e.code==='KeyT'){ brewOpen=false; return; }
+    const d=+((e.code.match(/^(Digit|Numpad)([1-5])$/)||[])[2]||0);
+    if(d) doBrew(POTIONS[d-1].id);
+    return;
+  }
+  if(nearBrew() && !questState && e.code==='KeyT'){ e.preventDefault(); brewOpen=true; brewMsg=''; return; }
+  // Waldplanet: Bombe
+  if(gs===S.SURFACE && currentPlanet==='forest' && e.code==='KeyB'){ e.preventDefault(); forestPlaceBomb(); return; }
+  // Tränke trinken
+  if((gs===S.SURFACE||isMissileState()) && !kioskOpen && !dialog && !questState && !mathQuiz){
+    if(e.code==='KeyL' && potions.life>0){ drinkPotion('life'); return; }
+    if(e.code==='KeyX' && potions.atk>0){ drinkPotion('atk'); return; }
+    if(e.code==='KeyC' && potions.shield>0){ drinkPotion('shield'); return; }
+  }
   // Tauschkiosk (Erde): T öffnet das Tauschfenster, 1/2/3 tauschen, R = Rubin→Diamanten
   if(exchangeOpen && nearExchange()){
     e.preventDefault();
@@ -760,6 +777,7 @@ const PLANET_DATA = {
   magma:   { name:'Magmaplanet',  skyTop:'#100800', skyBot:'#3a0a00', ground:'#2a0500', groundTop:'#5a1000', gravity:0.28, color:'#dd4400',  accent:'#882200' },
   stone:   { name:'Steinplanet',   skyTop:'#0d0d0d', skyBot:'#2a2a2a', ground:'#555555', groundTop:'#777777', gravity:0.42, color:'#888888',  accent:'#555555' },
   diamond: { name:'Diamantplanet', skyTop:'#000820', skyBot:'#001040', ground:'#1a1a3a', groundTop:'#2a2a5a', gravity:0.30, color:'#00cfff',  accent:'#0066aa' },
+  forest:  { name:'Waldplanet',    skyTop:'#06200f', skyBot:'#1d4a24', ground:'#2d1f10', groundTop:'#3f7a2a', gravity:0.5,  color:'#3fbf4f',  accent:'#1e7a2c' },
   gold:    { name:'Goldplanet',    skyTop:'#100800', skyBot:'#3a2a00', ground:'#4a3000', groundTop:'#7a5000', gravity:0.38, color:'#ffd700',  accent:'#c8a000' },
   ruby:    { name:'Rubinplanet',   skyTop:'#200010', skyBot:'#500020', ground:'#3a0020', groundTop:'#600030', gravity:0.36, color:'#ff2244',  accent:'#aa0022' },
   splash:  { name:'Wasserbombenplanet', skyTop:'#003040', skyBot:'#008ebb', ground:'#0066aa', groundTop:'#44bbee', gravity:0.36, color:'#33ccff',  accent:'#0088cc' }
@@ -774,7 +792,8 @@ const SPACE_PLANETS = [
   { id:'diamond', rx:0.50, ry:0.75, r:44 },
   { id:'gold',    rx:0.80, ry:0.35, r:55, locked:true },
   { id:'ruby',    rx:0.18, ry:0.25, r:48, locked:true },
-  { id:'splash',  rx:0.45, ry:0.42, r:46, locked:true }
+  { id:'splash',  rx:0.45, ry:0.42, r:46, locked:true },
+  { id:'forest',  rx:0.68, ry:0.86, r:48 }
 ];
 
 // ═══════════════════════════════════════════════════════════════════
@@ -824,7 +843,7 @@ let activeBossKey = '', activeBossTier = 0;
 const TIER_NAMES = ['','Wütend','Zornig','Finster','Albtraum','Schrecken','Unheimlich','Grauen','Dunkel','Legende','Unsterblich'];
 function bossTier(key){ return Math.min(10, bossWins[key]||0); }
 function tierHp(base,t){ return Math.round(base*(1+0.4*t)); }
-function tierSpd(t){ return 1+Math.min(1, 0.12*t); }
+function tierSpd(t){ return 1.4*(1+Math.min(1, 0.12*t)); }   // Grundtempo der Bosse +40 %
 function beginBossTier(key){ activeBossKey=key; activeBossTier=bossTier(key); return activeBossTier; }
 function registerBossWin(){
   if(!activeBossKey) return;
@@ -853,6 +872,25 @@ let splashShowModeSelect = false;  // show 1P/2P choice before game
                // earned by defeating gold boss
 const RUBY_VALUE = 200;       // diamonds per ruby exchange
 const RUBY_CROWNS = 500;      // crowns per ruby (Rubin = wertvollste Währung)
+// ── Waldplanet, Zutaten und Tränke ──
+const INGREDIENTS = {
+  herb:{icon:'🌿',name:'Heilkraut'}, berry:{icon:'🍓',name:'Waldbeere'}, mushroom:{icon:'🍄',name:'Kraftpilz'},
+  flower:{icon:'🌸',name:'Mondblume'}, feather:{icon:'🪶',name:'Feenfeder'}, nut:{icon:'🌰',name:'Zaubernuss'} };
+const POTIONS = [
+  {id:'life',   icon:'❤️', name:'Lebenstrank',       key:'L', desc:'Füllt alle Herzen auf (bis 20)',          need:{herb:2,berry:1}, store:true},
+  {id:'atk',    icon:'⚔️', name:'Doppel-Angriff',    key:'X', desc:'60 Sekunden doppelter Schaden',           need:{mushroom:2,nut:1}, store:true},
+  {id:'shield', icon:'🛡', name:'Schildtrank',       key:'C', desc:'Schild sofort komplett repariert',        need:{flower:1,feather:1,herb:1}, store:true},
+  {id:'rocket', icon:'🚀', name:'Raketentrank',      key:'',  desc:'Sofort +5 Eis-Lenkraketen',              need:{feather:2,nut:1}, store:false},
+  {id:'luck',   icon:'🍀', name:'Glückstrank',       key:'',  desc:'Sofort +50 💎 Diamanten',                need:{berry:2,flower:1,mushroom:1}, store:false},
+];
+let ingredients = {herb:0,berry:0,mushroom:0,flower:0,feather:0,nut:0};
+let potions = {life:0,atk:0,shield:0};
+let potionAtk = 0;                    // Restzeit Doppel-Angriff (Frames)
+let forestTrees=[], forestBombs=[], forestPickups=[], forestMonsters=[];
+let brewOpen=false, brewHits=[], brewMsg='', brewMsgCol='#8f8';
+// ── Goldraketen (Kiosk, Diamanten): Treffer verwandelt den Gegner 10 s in einen Goldblock, 4 Schaden pro Sekunde ──
+const GOLD_ROCKET_COST = 300;
+let goldRockets = false;
 // ── GOLD-MODUS: goldenes Schutzschild (360°, 3× so stark) + verstärkte Schüsse mit Goldschweif ──
 // Stufe 1: Gold-Schild + Goldschüsse · Stufe 2: + unendlich Schweben + Schallwellen (50) · Stufe 3: + Laser (80) + Eis-Raketen frieren 10 s ein
 const GOLD_COSTS = [0, 10, 60, 120];   // Rubine für Stufe 1, 2, 3
@@ -1086,7 +1124,7 @@ function saveGame(slotName) {
   const entry = {
     name:         slotName.trim() || 'Spielstand',
     date:         new Date().toLocaleString('de-DE'),
-    level, lives, crowns, diamonds, rubies, splashStars, iceMissiles, goldLevel, goldModeOn, bossWins:{...bossWins}, iceMultiLevel, backpackLevel, jetpackLevel,
+    level, lives, crowns, diamonds, rubies, splashStars, iceMissiles, ingredients:{...ingredients}, potions:{...potions}, goldRockets, goldLevel, goldModeOn, bossWins:{...bossWins}, iceMultiLevel, backpackLevel, jetpackLevel,
     gameMode, sagaChapter, sagaUnlocked: {...sagaUnlocked},
     splashPlanetUnlocked,
     currentPlanet,
@@ -1120,6 +1158,9 @@ function loadGame(entry) {
   diamonds              = entry.diamonds              ?? 0;
   rubies                = entry.rubies                ?? 0;
   iceMissiles           = entry.iceMissiles           ?? 0;
+  ingredients           = {herb:0,berry:0,mushroom:0,flower:0,feather:0,nut:0, ...(entry.ingredients||{})};
+  potions               = {life:0,atk:0,shield:0, ...(entry.potions||{})};
+  goldRockets           = entry.goldRockets ?? false;
   goldLevel             = entry.goldLevel ?? (entry.goldModeUnlocked ? 1 : 0);
   goldModeOn            = entry.goldModeOn            ?? true;
   bossWins              = {...(entry.bossWins||{})};
@@ -1208,7 +1249,7 @@ function openLoadMenu() {
 //  GAME SETUP
 // ═══════════════════════════════════════════════════════════════════
 function startGame(){
-  level=1; lives=3; crowns=0; diamonds=0; iceMissiles=0; goldModeUnlocked=false; goldLevel=0; goldModeOn=true; bossWins={}; iceMultiLevel=0; backpackLevel=0; jetpackLevel=0; jetpackAuto=false; shieldHP=100; shieldBroken=false; shieldBlocked=0;
+  level=1; lives=3; crowns=0; diamonds=0; iceMissiles=0; ingredients={herb:0,berry:0,mushroom:0,flower:0,feather:0,nut:0}; potions={life:0,atk:0,shield:0}; potionAtk=0; goldRockets=false; goldModeUnlocked=false; goldLevel=0; goldModeOn=true; bossWins={}; iceMultiLevel=0; backpackLevel=0; jetpackLevel=0; jetpackAuto=false; shieldHP=100; shieldBroken=false; shieldBlocked=0;
   diamondWeaponLevel=0; diamondShieldLevel=0; diamondRocketLevel=0; subjectQuestsDone={};
   rubies=0;
   diamondPlanetBossUnlocked=false; goldPlanetUnlocked=false;
@@ -1276,6 +1317,8 @@ function setupSurface(planetId){
     setupDiamondWorld(rng, gy);
   } else if (planetId==='gold') {
     setupGoldWorld(rng, gy);
+  } else if(planetId==='forest') {
+    setupForestWorld(rng, gy);
   } else if(planetId==='ruby') {
     setupRubyWorld(rng, gy);
     setTimeout(()=>{ if(currentPlanet==='ruby') gs=S.RUBY_BOSS; }, 500);
@@ -2240,7 +2283,7 @@ function startBossFight(){
   const t=beginBossTier('boss_'+currentPlanet);
   boss.x=W*0.65; boss.y=H*0.35;
   boss.vx=1.2*tierSpd(t); boss.vy=0.4*tierSpd(t);
-  boss.maxHp=tierHp(currentPlanet==='stone'?100:30, t);
+  boss.maxHp=tierHp(currentPlanet==='stone'?260:120, t);
   boss.hp=boss.maxHp; boss.hits=0; boss.dead=false; boss.deadTimer=0;
   boss.shootTimer=90; boss.phase=0;
   bossProjectiles=[]; bossExplosions=[];
@@ -2257,6 +2300,7 @@ function startBossFight(){
 
 // ── Gold-Modus: Schüsse und Raketen bekommen Goldschweif und +50 % Kraft ──
 function goldProjectileTick(){
+  if(potionAtk>0){ potionAtk--; for(const p of pProjectiles) if(!p._atk){ p._atk=true; if(!p.goldFx) p.power=(p.power||1)*2; } }
   if(!goldActive() || !pProjectiles.length) return;
   for(const p of pProjectiles){
     if(!p._gold){ p._gold=true; p.gtrail=[]; if(!p.goldFx) p.power=Math.ceil((p.power||1)*1.5); }
@@ -2339,46 +2383,63 @@ function goldPowersTick(){
       playFX(1200,0.08,'square',0.08);
     }
   }
-  // Treffer erkennen: Schallwelle → Explosion, Eis-Rakete (Stufe 3) → einfrieren
+}
+// Raketen-/Wellentreffer auswerten (läuft in jedem Bosskampf)
+function missileHitTick(){
   const now=new Set(pProjectiles);
   for(const p of goldTracked){
     if(now.has(p)) continue;
-    if(p.life>2 && p.x>8 && p.x<W-8 && p.y>8 && p.y<H-8){
-      if(p.wave) goldExplosion(p.x,p.y,true);
-      if(p.missile && lv>=3){
-        const o=goldTargets().sort((a,b)=>Math.hypot(a.x+a.w/2-p.x,a.y+a.h/2-p.y)-Math.hypot(b.x+b.w/2-p.x,b.y+b.h/2-p.y))[0];
-        if(o && Math.hypot(o.x+o.w/2-p.x,o.y+o.h/2-p.y)<Math.max(o.w,o.h)+60){ o.frozen=FREEZE_FRAMES; o.fx=o.x; o.fy=o.y; playFX(1500,0.3,'triangle',0.15); }
+    if(!(p.life>2 && p.x>8 && p.x<W-8 && p.y>8 && p.y<H-8)) continue;
+    if(p.wave) goldExplosion(p.x,p.y,true);
+    if(p.missile && (goldRockets || goldLvl()>=3)){
+      const o=goldTargets().sort((a,b)=>Math.hypot(a.x+a.w/2-p.x,a.y+a.h/2-p.y)-Math.hypot(b.x+b.w/2-p.x,b.y+b.h/2-p.y))[0];
+      if(o && Math.hypot(o.x+o.w/2-p.x,o.y+o.h/2-p.y)<Math.max(o.w,o.h)+60){
+        if(!(o.frozen>0) && !(o.goldBlock>0)){ o.fx=o.x; o.fy=o.y; }
+        if(goldRockets){ o.goldBlock=FREEZE_FRAMES; o.dotT=0; playFX(880,0.3,'triangle',0.18); }
+        else { o.frozen=FREEZE_FRAMES; playFX(1500,0.3,'triangle',0.15); }
       }
     }
   }
   goldTracked=pProjectiles.filter(p=>p.wave||p.missile);
-  for(const p of goldTracked){ /* Position für Treffererkennung merken */ }
-  // eingefrorene Gegner: keine Bewegung, keine Angriffe
+  // eingefroren / Goldblock: keine Bewegung, keine Angriffe; Goldblock: 4 Schaden pro Sekunde
   for(const o of goldTargets()){
-    if(!(o.frozen>0)) continue;
-    o.frozen--;
+    const fr=o.frozen>0, gbk=o.goldBlock>0;
+    if(!fr && !gbk) continue;
+    if(fr) o.frozen--;
+    if(gbk){
+      o.goldBlock--;
+      if(++o.dotT>=60){
+        o.dotT=0; o.hits=(o.hits||0)+4; if('hp' in o && 'maxHp' in o) o.hp=o.maxHp-o.hits;
+        hitFX.push({x:o.x+o.w/2,y:o.y,vx:0,vy:-1.2,life:40,color:'#ffd700'});
+        // Treffer-Prüfung des Bosses auslösen (Schaden 0), damit er bei 0 HP besiegt wird
+        if(o.hits>=o.maxHp) pProjectiles.push({x:o.x+o.w/2,y:o.y+o.h/2,vx:0,vy:0,life:3,r:6,power:0,goldFx:true,_gold:true,_atk:true,gtrail:[]});
+      }
+    }
     o.x=o.fx; o.y=o.fy;
     for(const k in o) if(/Timer$/.test(k) && !['deadTimer','beamTimer','invTimer','hitTimer'].includes(k) && typeof o[k]==='number') o[k]=Math.max(o[k],30);
     if(o===goldBossData){ o.beamTimer=0; if(typeof gbBeamActive!=='undefined') gbBeamActive=false; }
   }
 }
-function goldFreezeClamp(){ for(const o of goldTargets()) if(o.frozen>0){ o.x=o.fx; o.y=o.fy; } }
-function drawGoldPowers(){
-  // eingefrorene Gegner
+function drawImmobilized(){
   for(const o of goldTargets()){
-    if(!(o.frozen>0)) continue;
-    const pad=10, a=0.35+0.1*Math.sin(frame*0.1);
+    const fr=o.frozen>0, gbk=o.goldBlock>0;
+    if(!fr && !gbk) continue;
+    const pad=10, a=0.35+0.1*Math.sin(frame*0.1), t=gbk?o.goldBlock:o.frozen;
     ctx.save();
     const g=ctx.createLinearGradient(o.x,o.y,o.x+o.w,o.y+o.h);
-    g.addColorStop(0,`rgba(200,240,255,${a+0.15})`); g.addColorStop(1,`rgba(90,180,255,${a})`);
-    ctx.fillStyle=g; ctx.strokeStyle='rgba(230,250,255,0.95)'; ctx.lineWidth=3;
-    ctx.beginPath(); ctx.roundRect(o.x-pad,o.y-pad,o.w+pad*2,o.h+pad*2,10); ctx.fill(); ctx.stroke();
+    if(gbk){ g.addColorStop(0,`rgba(255,235,120,${a+0.35})`); g.addColorStop(1,`rgba(200,140,0,${a+0.3})`); ctx.strokeStyle='#fff3b0'; }
+    else { g.addColorStop(0,`rgba(200,240,255,${a+0.15})`); g.addColorStop(1,`rgba(90,180,255,${a})`); ctx.strokeStyle='rgba(230,250,255,0.95)'; }
+    ctx.fillStyle=g; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.roundRect(o.x-pad,o.y-pad,o.w+pad*2,o.h+pad*2,gbk?4:10); ctx.fill(); ctx.stroke();
     ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=2;
     ctx.beginPath(); ctx.moveTo(o.x,o.y+o.h*0.3); ctx.lineTo(o.x+o.w*0.4,o.y); ctx.moveTo(o.x+o.w*0.6,o.y+o.h); ctx.lineTo(o.x+o.w,o.y+o.h*0.6); ctx.stroke();
     ctx.fillStyle='#fff'; ctx.font='bold 14px Courier New'; ctx.textAlign='center';
-    ctx.fillText(`❄️ ${Math.ceil(o.frozen/60)} s`, o.x+o.w/2, o.y-pad-6);
+    ctx.fillText(gbk?`🟨 Goldblock ${Math.ceil(t/60)} s · −4/s`:`❄️ ${Math.ceil(t/60)} s`, o.x+o.w/2, o.y-pad-6);
     ctx.restore();
   }
+}
+function goldFreezeClamp(){ for(const o of goldTargets()) if(o.frozen>0||o.goldBlock>0){ o.x=o.fx; o.y=o.fy; } }
+function drawGoldPowers(){
   // Schallwellen + Laser
   for(const p of pProjectiles){
     if(p.wave){
@@ -2428,7 +2489,13 @@ function currentBossObj(){
 }
 function bossAggroTick(){
   const o=currentBossObj();
-  if(!o || o.dead || !activeBossTier) return;
+  if(!o || o.dead || o.frozen>0 || o.goldBlock>0) return;
+  // beweglicher: plötzliche Richtungswechsel, Höhenwechsel und kurze Sprints
+  if(typeof o.vx==='number' && Math.random()<0.012) o.vx*=-1;
+  if(typeof o.vy==='number' && Math.random()<0.02) o.vy=(Math.random()-.5)*Math.max(1.5,Math.abs(o.vx||1.5))*1.4;
+  if(!(o._dash>0) && Math.random()<0.005) o._dash=40;
+  if(o._dash>0){ o._dash--; if(typeof o.vx==='number') o.x+=o.vx*1.6; o.x=Math.max(20,Math.min(W-20-o.w,o.x)); }
+  if(!activeBossTier) return;
   if(typeof o.shootTimer==='number' && Math.random()<Math.min(0.7,0.12*activeBossTier)) o.shootTimer--;   // schießt öfter
   if(frame%6===0 && activeBossTier>=2) hitFX.push({ x:o.x+o.w*Math.random(), y:o.y+o.h*Math.random(),
       vx:(Math.random()-.5)*0.6, vy:-0.6-Math.random(), life:45, color:'rgba(30,0,10,0.75)' });  // dunkler Rauch
@@ -2638,7 +2705,7 @@ function drawIceMissiles(){
     if(!p.missile) continue;
     // icy trail
     p.trail.forEach((tp,i)=>{
-      ctx.fillStyle=p._gold?`rgba(255,${190+i*4},60,${i/p.trail.length*0.8})`:`rgba(180,235,255,${i/p.trail.length*0.6})`;
+      ctx.fillStyle=(p._gold||goldRockets)?`rgba(255,${190+i*4},60,${i/p.trail.length*0.8})`:`rgba(180,235,255,${i/p.trail.length*0.6})`;
       ctx.beginPath(); ctx.arc(tp.x,tp.y,2+i*0.35,0,Math.PI*2); ctx.fill();
     });
     const ang=Math.atan2(p.vy,p.vx);
@@ -2681,7 +2748,7 @@ function handleMissileTap(cx,cy){
 function update(){
   // Speichern über Touch-Button (setzt justDown KeyP)
   if(justDown['KeyP'] && (gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog){ openSaveMenu(); clearJust(); return; }
-  if(isMissileState()){ if(justDown['KeyR']) fireIceMissile(); steerIceMissiles(); bossAggroTick(); if(goldActive()) goldPowersTick(); }
+  if(isMissileState()){ if(justDown['KeyR']) fireIceMissile(); steerIceMissiles(); bossAggroTick(); if(goldActive()) goldPowersTick(); missileHitTick(); }
   goldProjectileTick();
   switch(gs){
     case S.MENU:        updateMenu();        break;
@@ -2853,6 +2920,7 @@ function updateSurface(){
   
   const pd=PLANET_DATA[currentPlanet];
   const gy=groundY();
+  if(currentPlanet==='forest') updateForest(gy);
 
   if(inRocket){
     if(justDown['KeyA']){ inRocket=false; hero.x=srkt.x+srkt.w+5; hero.y=srkt.y+srkt.h-hero.h; }
@@ -2962,6 +3030,7 @@ function updateSurface(){
       if(kioskTab==='gold' && keys['KeyG']){ kioskBuySpecial('goldToggle'); interactCooldown=20; }
       if(kioskTab==='ice' && keys['KeyM']){ kioskBuySpecial('multi'); interactCooldown=20; }
       if(kioskTab==='ice' && keys['KeyU']){ kioskBuySpecial('backpack'); interactCooldown=20; }
+      if(kioskTab==='ice' && keys['KeyO']){ kioskBuySpecial('goldrocket'); interactCooldown=20; }
       if(keys['Escape']){ kioskOpen=false; interactCooldown=20; }
       if(keys['Enter'] && (kioskTab==='ice'||kioskTab==='hearts'||kioskTab==='jetpack'||kioskTab==='gold')){
         kioskBuySpecial(); interactCooldown=15;
@@ -3322,7 +3391,7 @@ function updateBoss(){
     p.x+=p.vx; p.y+=p.vy; p.life--;
     if(p.life<=0) return false;
     if(!boss.dead&&circRect(p.x,p.y,p.r,boss.x,boss.y,boss.w,boss.h)){
-      boss.hits += (p.missile||p.goldFx) ? p.power : 1;
+      boss.hits += (p.missile||p.goldFx) ? p.power : (p._atk?2:1);
       boss.hp=boss.maxHp-boss.hits;
       for(let j=0;j<5;j++) hitFX.push({x:p.x,y:p.y,vx:(Math.random()-.5)*5,vy:(Math.random()-.5)*5,life:18,color:'#4af'});
       playFX(440+boss.hits*8,0.1,'sine',0.15);
@@ -3421,7 +3490,7 @@ function updateBoard(){
 // ═══════════════════════════════════════════════════════════════════
 function render(){
   frame++;
-  if(isMissileState() && goldLvl()>=3) goldFreezeClamp();
+  if(isMissileState()) goldFreezeClamp();
   if(frame%20===0) updateHtmlUiZoom();
   activePopupView=null;
   ctx.clearRect(0,0,W,H);
@@ -3451,7 +3520,8 @@ function render(){
     case S.SPLASH_BOSS: renderSplashBoss(); break;
   }
   if(gs===S.SURFACE || isMissileState()) drawGoldTrails();
-  if(isMissileState()){ drawBossTierOverlay(); if(goldActive()) drawGoldPowers(); drawIceMissiles(); }
+  if(isMissileState()){ drawBossTierOverlay(); drawImmobilized(); if(goldActive()) drawGoldPowers(); drawIceMissiles(); }
+  drawPotionBelt();
   // Mobile touch UI update
   if(mobileMode) { updateTouchUI(); drawVirtualButtons(); }
 }
@@ -3828,7 +3898,7 @@ const HUD = { k:1, row1:30, row2:54, row3:80, h:66 };
 function hudHasInfoRow(){
   if(gs!==S.SURFACE) return false;
   if(currentPlanet==='monster') return monsters.length>0;
-  return ['magma','stone','diamond','gold','ruby'].includes(currentPlanet);
+  return ['magma','stone','diamond','gold','ruby','forest'].includes(currentPlanet);
 }
 function drawHUD(){
   const k = Math.max(0.72, Math.min(1.5, W/1000, H/620));
@@ -4215,6 +4285,9 @@ function kioskBuySpecial(kind){
   } else if(kind==='multi'){
     if(iceMultiLevel>=2) return no(); const cost=ICE_MULTI_COST[iceMultiLevel+1];
     if(diamonds<cost) return no(); diamonds-=cost; iceMultiLevel++; ok();
+  } else if(kind==='goldrocket'){
+    if(goldRockets||diamonds<GOLD_ROCKET_COST) return no();
+    diamonds-=GOLD_ROCKET_COST; goldRockets=true; ok();
   } else if(kind==='backpack'){
     if(backpackLevel>=3) return no(); const cost=BACKPACK_COST[backpackLevel+1];
     if(diamonds<cost) return no(); diamonds-=cost; backpackLevel++; ok();
@@ -4235,7 +4308,7 @@ const KIOSK_TABS=[
   {key:'jetpack',label:'🎒 Jetpack [9]'},{key:'gold',label:'✨ Gold [0]'}
 ];
 function getKioskLayout(){
-  const dw=Math.min(W-20,620), dh=330, dx=W/2-dw/2, dy=H/2-dh/2-20;
+  const dw=Math.min(W-20,620), dh=390, dx=W/2-dw/2, dy=H/2-dh/2-20;
   const tw=(dw-40)/5, th=32;
   const tabs=KIOSK_TABS.map((t,i)=>({...t, x:dx+20+(i%5)*tw, y:dy+52+Math.floor(i/5)*(th+6), w:tw-6, h:th}));
   return {dw,dh,dx,dy,tabs,cy:dy+136};
@@ -4293,6 +4366,9 @@ function renderKioskInner(){
       { t:`🎒 Rucksack: Stufe ${backpackLevel+1}/4`, s:`${iceCapacity()} Plätze – jede Stufe ×2`,
         lab: backpackLevel>=3?'✅ Höchste Stufe':`U: ${iceCapacity()*2} Plätze (${BACKPACK_COST[backpackLevel+1]} 💎)`,
         can: backpackLevel<3&&diamonds>=BACKPACK_COST[backpackLevel+1], kind:'backpack' },
+      { t:`🟨 Goldraketen: ${goldRockets?'freigeschaltet':'gesperrt'}`, s:'Treffer: 10 s Goldblock, 4 Schaden/s',
+        lab: goldRockets?'✅ Freigeschaltet':`O: Freischalten (${GOLD_ROCKET_COST} 💎)`,
+        can: !goldRockets&&diamonds>=GOLD_ROCKET_COST, kind:'goldrocket' },
     ];
     rows.forEach((r,i)=>{
       const y=cy+12+i*56;
@@ -4875,7 +4951,7 @@ function startDiamondBoss(){
   subjectQuestsDone={}; diamondPlanetBossUnlocked=false;
   diamondTrees.forEach(t=>t.completed=false);
   const t=beginBossTier('diamond');
-  diamondBoss.maxHp=tierHp(200,t); diamondBoss.hp=diamondBoss.maxHp; diamondBoss.hits=0;
+  diamondBoss.maxHp=tierHp(500,t); diamondBoss.hp=diamondBoss.maxHp; diamondBoss.hits=0;
   diamondBoss.x=W*0.7; diamondBoss.y=H*0.3;
   diamondBoss.vx=2*tierSpd(t); diamondBoss.vy=0.3*tierSpd(t);
   diamondBoss.phase=0; diamondBoss.dead=false; diamondBoss.deadTimer=0;
@@ -5212,7 +5288,7 @@ function startGoldBoss(){
   gs=S.GOLD_BOSS;
   const gb=goldBossData;
   const t=beginBossTier('gold');
-  gb.maxHp=tierHp(300,t); gb.hp=gb.maxHp; gb.hits=0;
+  gb.maxHp=tierHp(800,t); gb.hp=gb.maxHp; gb.hits=0;
   gb.x=W*0.65; gb.y=H*0.3;
   gb.vx=1.5*tierSpd(t); gb.vy=0.3*tierSpd(t);
   gb.phase=0; gb.dead=false; gb.deadTimer=0;
@@ -5549,6 +5625,268 @@ function drawExchangeKiosk(wx, gy){
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  WALDPLANET: Bäume mit Bomben (B) wegsprengen → Zutaten oder Waldgeister
+// ═══════════════════════════════════════════════════════════════════
+function setupForestWorld(rng, gy){
+  platforms=[]; forestBombs=[]; forestPickups=[]; forestMonsters=[]; forestTrees=[];
+  const keys=Object.keys(INGREDIENTS);
+  for(let x=260; x<WORLD_W-120; x+=150+Math.floor(rng()*70)){
+    if(Math.abs(x-WORLD_W/2)<140) continue;              // Platz für die Rakete
+    const monster = rng()<0.35;
+    forestTrees.push({ x, h:150+Math.floor(rng()*60), kind:rng()<0.5?'pine':'oak', alive:true,
+      content: monster ? 'monster' : keys[Math.floor(rng()*keys.length)] });
+  }
+}
+function forestPlaceBomb(){
+  if(currentPlanet!=='forest' || inRocket || forestBombs.length) return;
+  forestBombs.push({ x:hero.x+hero.w/2, y:groundY()-10, t:90 });
+  playFX(300,0.08,'square',0.1);
+}
+function forestExplode(b){
+  const R=150, gy=groundY();
+  for(let j=0;j<30;j++){ const a=Math.random()*Math.PI*2, s=2+Math.random()*6;
+    hitFX.push({x:b.x,y:b.y-10,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,life:30+Math.random()*15,color:j%3?'#ffb030':'#7cff6b'}); }
+  playFX(90,0.35,'sawtooth',0.25);
+  for(const t of forestTrees){
+    if(!t.alive || Math.abs(t.x-b.x)>R) continue;
+    t.alive=false;
+    for(let j=0;j<10;j++) hitFX.push({x:t.x,y:gy-t.h*0.6,vx:(Math.random()-.5)*6,vy:-Math.random()*5,life:30,color:'#3f8f3a'});
+    if(t.content==='monster'){
+      const m=planetMonsterMul();
+      forestMonsters.push({x:t.x-20,y:gy-48,w:40,h:48,hp:Math.round(8*m),maxHp:Math.round(8*m),vx:0,flash:0,dead:false,deadTimer:0});
+      playFX(160,0.3,'square',0.15);
+    } else {
+      forestPickups.push({x:t.x,y:gy-26,type:t.content,bob:Math.random()*6});
+    }
+  }
+  for(const m of forestMonsters){ if(!m.dead && Math.abs(m.x+m.w/2-b.x)<R){ m.hp-=6; m.flash=10; } }
+}
+function updateForest(gy){
+  for(const b of forestBombs){ b.t--; if(b.t<=0) forestExplode(b); }
+  forestBombs=forestBombs.filter(b=>b.t>0);
+  // Zutaten einsammeln
+  forestPickups=forestPickups.filter(pk=>{
+    if(Math.abs(hero.x+hero.w/2-pk.x)<28 && hero.y+hero.h>gy-60){
+      ingredients[pk.type]=(ingredients[pk.type]||0)+1;
+      for(let j=0;j<8;j++) hitFX.push({x:pk.x,y:pk.y,vx:(Math.random()-.5)*3,vy:-Math.random()*3,life:24,color:'#fff27a'});
+      playFX(988,0.12,'sine',0.15); return false;
+    }
+    return true;
+  });
+  // Waldgeister
+  for(const m of forestMonsters){
+    if(m.dead){ m.deadTimer++; continue; }
+    if(m.flash>0) m.flash--;
+    const dx=(hero.x+hero.w/2)-(m.x+m.w/2);
+    m.vx = Math.abs(dx)<650 ? Math.sign(dx)*(kidsMode?0.9:1.5) : 0;
+    m.x+=m.vx;
+    // Wasserschüsse
+    for(let i=pProjectiles.length-1;i>=0;i--){
+      const p=pProjectiles[i];
+      if(circRect(p.x,p.y,p.r||5,m.x,m.y,m.w,m.h)){
+        m.hp-=(p.power||1)*(p._atk?2:1); m.flash=8; pProjectiles.splice(i,1);
+        for(let j=0;j<4;j++) hitFX.push({x:p.x,y:p.y,vx:(Math.random()-.5)*4,vy:-Math.random()*3,life:16,color:'#9f9'});
+      }
+    }
+    if(m.hp<=0 && !m.dead){
+      m.dead=true; crowns+=3; playFX(660,0.25,'triangle',0.2);
+      if(Math.random()<0.5){ const k=Object.keys(INGREDIENTS); forestPickups.push({x:m.x+m.w/2,y:gy-26,type:k[Math.floor(Math.random()*k.length)],bob:0}); }
+      continue;
+    }
+    // Berührung
+    if(hero.invTimer<=0 && circRect(m.x+m.w/2,m.y+m.h/2,m.w/2,hero.x,hero.y,hero.w,hero.h)){
+      if(keys['KeyS'] && !shieldBroken){ m.x-=Math.sign(dx)*40; shieldBlocked+=goldActive()?1/3:1; }
+      else {
+        lives--; hero.invTimer=90; playFX(150,0.3,'sawtooth',0.2);
+        if(lives<=0){ gs=S.GAMEOVER; setTimeout(()=>showNameInput(),400); }
+      }
+    }
+  }
+  forestMonsters=forestMonsters.filter(m=>!(m.dead && m.deadTimer>30));
+}
+function drawForestTrees(gy){
+  for(const t of forestTrees){
+    const x=t.x;
+    if(!t.alive){
+      ctx.fillStyle='#5a3a1c'; ctx.fillRect(x-14,gy-16,28,16);
+      ctx.fillStyle='#7a5530'; ctx.beginPath(); ctx.ellipse(x,gy-16,14,5,0,0,Math.PI*2); ctx.fill();
+      continue;
+    }
+    ctx.fillStyle='#4a2f16'; ctx.fillRect(x-10,gy-t.h*0.45,20,t.h*0.45);
+    if(t.kind==='pine'){
+      for(let i=0;i<3;i++){
+        const yb=gy-t.h*0.3-i*t.h*0.22, wdt=70-i*16;
+        ctx.fillStyle=i%2?'#1f6b2e':'#2a8a3a';
+        ctx.beginPath(); ctx.moveTo(x-wdt,yb); ctx.lineTo(x,yb-t.h*0.38); ctx.lineTo(x+wdt,yb); ctx.closePath(); ctx.fill();
+      }
+    } else {
+      const cy=gy-t.h*0.62;
+      [[0,0,52],[-34,16,36],[34,14,38],[0,-30,40]].forEach(([ox,oy,r],i)=>{
+        ctx.fillStyle=i%2?'#2f8f3c':'#3aa64a'; ctx.beginPath(); ctx.arc(x+ox,cy+oy,r,0,Math.PI*2); ctx.fill(); });
+    }
+  }
+}
+function drawForestWorld(gy){
+  // Zutaten
+  for(const pk of forestPickups){
+    const y=pk.y+Math.sin(frame*0.1+pk.bob)*4;
+    const g=ctx.createRadialGradient(pk.x,y,2,pk.x,y,22); g.addColorStop(0,'rgba(255,255,180,0.7)'); g.addColorStop(1,'rgba(255,255,180,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(pk.x,y,22,0,Math.PI*2); ctx.fill();
+    ctx.font='24px Arial'; ctx.textAlign='center'; ctx.fillText(INGREDIENTS[pk.type].icon, pk.x, y+8);
+  }
+  // Bomben
+  for(const b of forestBombs){
+    const blink=b.t<30 && Math.floor(frame/4)%2;
+    ctx.fillStyle=blink?'#ff4444':'#222'; ctx.beginPath(); ctx.arc(b.x,b.y-4,13,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#a87'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(b.x+6,b.y-14); ctx.quadraticCurveTo(b.x+12,b.y-24,b.x+4,b.y-28); ctx.stroke();
+    ctx.fillStyle=Math.random()<0.5?'#ffd23a':'#ff7a1a'; ctx.beginPath(); ctx.arc(b.x+4,b.y-29,4+Math.random()*2,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 12px Courier New'; ctx.textAlign='center'; ctx.fillText(Math.ceil(b.t/60)+'', b.x, b.y);
+  }
+  // Waldgeister (wütende Baumstümpfe)
+  for(const m of forestMonsters){
+    if(m.dead){ ctx.globalAlpha=1-m.deadTimer/30; }
+    const bob=Math.sin(frame*0.2+m.x)*2;
+    ctx.fillStyle=m.flash?'#fff':'#5b3a1e'; ctx.beginPath(); ctx.roundRect(m.x,m.y+bob,m.w,m.h,8); ctx.fill();
+    ctx.fillStyle='#2f7a2a'; ctx.beginPath(); ctx.arc(m.x+m.w/2,m.y+bob,18,Math.PI,0); ctx.fill();
+    ctx.fillStyle='#ffdd33'; ctx.beginPath(); ctx.arc(m.x+12,m.y+18+bob,5,0,Math.PI*2); ctx.arc(m.x+m.w-12,m.y+18+bob,5,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#200'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(m.x+8,m.y+10+bob); ctx.lineTo(m.x+17,m.y+14+bob); ctx.moveTo(m.x+m.w-8,m.y+10+bob); ctx.lineTo(m.x+m.w-17,m.y+14+bob); ctx.stroke();
+    ctx.fillStyle='#200'; ctx.fillRect(m.x+12,m.y+32+bob,m.w-24,5);
+    ctx.fillStyle='#400'; ctx.fillRect(m.x,m.y-10,m.w,4); ctx.fillStyle='#6f6'; ctx.fillRect(m.x,m.y-10,m.w*Math.max(0,m.hp)/m.maxHp,4);
+    ctx.globalAlpha=1;
+  }
+}
+function forestInfoText(){
+  return '🌲 Waldplanet  |  B: Bombe  |  '+Object.keys(INGREDIENTS).map(k=>INGREDIENTS[k].icon+(ingredients[k]||0)).join(' ');
+}
+function getBombButton(){ return { x:W-190, y:H-150, w:170, h:52 }; }
+
+// ═══════════════════════════════════════════════════════════════════
+//  BRAUSTAND (Erde, x=1700): Zutaten → Tränke
+// ═══════════════════════════════════════════════════════════════════
+const BREW_X = 1700;
+function nearBrew(){ return gs===S.SURFACE && currentPlanet==='earth' && !inRocket && Math.abs(hero.x-BREW_X)<90; }
+function canBrew(pt){ return Object.entries(pt.need).every(([k,n])=>(ingredients[k]||0)>=n); }
+function doBrew(id){
+  const pt=POTIONS.find(x=>x.id===id); if(!pt) return;
+  if(!canBrew(pt)){ brewMsg='Es fehlen noch Zutaten – flieg zum 🌲 Waldplaneten!'; brewMsgCol='#f88'; playFX(150,0.15,'square',0.1); return; }
+  for(const [k,n] of Object.entries(pt.need)) ingredients[k]-=n;
+  if(pt.store) potions[id]=(potions[id]||0)+1;
+  else if(id==='rocket') iceMissiles=Math.min(iceCapacity(), iceMissiles+5);
+  else if(id==='luck') diamonds+=50;
+  brewMsg=`${pt.icon} ${pt.name} gebraut!`+(pt.store?` Trinken mit ${pt.key} oder Antippen.`:''); brewMsgCol='#8f8';
+  for(let j=0;j<20;j++) hitFX.push({x:BREW_X,y:groundY()-60,vx:(Math.random()-.5)*4,vy:-2-Math.random()*4,life:40,color:['#7f7','#c8f','#ff8'][j%3]});
+  playFX(523,0.15,'sine',0.2); setTimeout(()=>playFX(784,0.2,'sine',0.2),120);
+}
+function drinkPotion(id){
+  if(!(potions[id]>0)) { playFX(150,0.1,'square',0.08); return; }
+  potions[id]--;
+  if(id==='life'){ lives=HEART_MAX; }
+  else if(id==='atk'){ potionAtk=3600; }
+  else if(id==='shield'){ shieldBroken=false; shieldBlocked=0; shieldHP=100; }
+  for(let j=0;j<16;j++) hitFX.push({x:hero.x+hero.w/2,y:hero.y+hero.h/2,vx:(Math.random()-.5)*4,vy:-Math.random()*4,life:30,color:id==='life'?'#ff6688':id==='atk'?'#ffaa33':'#66ccff'});
+  playFX(660,0.2,'sine',0.2); setTimeout(()=>playFX(990,0.2,'sine',0.15),100);
+}
+function drawBrewStand(x, gy){
+  const near=nearBrew();
+  // Tisch + Kessel
+  ctx.fillStyle='#5a3a1c'; ctx.fillRect(x-60,gy-22,120,22);
+  ctx.fillStyle='#333'; ctx.beginPath(); ctx.ellipse(x,gy-46,38,28,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#4f4'; ctx.beginPath(); ctx.ellipse(x,gy-66,32,8,0,0,Math.PI*2); ctx.fill();
+  for(let i=0;i<3;i++){ const bx=x-16+i*16, by=gy-70-((frame*0.8+i*20)%30); ctx.fillStyle='rgba(150,255,150,0.7)'; ctx.beginPath(); ctx.arc(bx,by,4,0,Math.PI*2); ctx.fill(); }
+  ctx.fillStyle='#ff7a1a'; for(let i=0;i<3;i++){ ctx.beginPath(); ctx.arc(x-16+i*16,gy-20+Math.sin(frame*0.3+i)*2,6,0,Math.PI*2); ctx.fill(); }
+  // Schild
+  ctx.fillStyle='#6a3f9a'; ctx.beginPath(); ctx.roundRect(x-62,gy-128,124,26,6); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New'; ctx.textAlign='center'; ctx.fillText('⚗️ BRAUSTAND', x, gy-110);
+  if(near){ ctx.fillStyle='rgba(255,200,255,0.95)'; ctx.font='bold 12px monospace'; ctx.fillText('T: Brauen', x, gy-136); }
+}
+function getBrewOpenButton(){ return { x:W/2-110, y:H-120, w:220, h:46 }; }
+function renderBrew(){
+  if(!nearBrew()){ brewOpen=false; return; }
+  if(!brewOpen){
+    const b=getBrewOpenButton();
+    ctx.fillStyle='rgba(90,40,140,0.9)'; ctx.strokeStyle='#d9b3ff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,12); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='bold 16px Courier New'; ctx.textAlign='center'; ctx.fillText('⚗️ Brauen (T)', W/2, b.y+29);
+    return;
+  }
+  const PW=620, PH=470, PX=W/2-PW/2, PY=H/2-PH/2;
+  uiBegin('brew', uiFitK(PW+20, PH+20), W/2, H/2);
+  brewHits=[];
+  ctx.fillStyle='rgba(18,10,30,0.96)'; ctx.beginPath(); ctx.roundRect(PX,PY,PW,PH,16); ctx.fill();
+  ctx.strokeStyle='#9f6'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.roundRect(PX,PY,PW,PH,16); ctx.stroke();
+  ctx.textAlign='center'; ctx.fillStyle='#bfa'; ctx.font='bold 19px Courier New'; ctx.fillText('⚗️ BRAUSTAND – Tränke brauen', W/2, PY+30);
+  ctx.fillStyle='#fff'; ctx.font='15px Arial';
+  ctx.fillText('Deine Zutaten:  '+Object.keys(INGREDIENTS).map(k=>INGREDIENTS[k].icon+' '+(ingredients[k]||0)).join('    '), W/2, PY+58);
+  POTIONS.forEach((pt,i)=>{
+    const y=PY+76+i*66, x0=PX+20, rw=PW-40, ok=canBrew(pt);
+    ctx.fillStyle=ok?'rgba(40,90,40,0.6)':'rgba(50,40,70,0.55)'; ctx.beginPath(); ctx.roundRect(x0,y,rw,58,10); ctx.fill();
+    ctx.textAlign='left'; ctx.fillStyle='#fff'; ctx.font='bold 15px Courier New';
+    ctx.fillText(`${i+1}. ${pt.icon} ${pt.name}`+(pt.store?`  (Vorrat: ${potions[pt.id]||0})`:''), x0+10, y+22);
+    ctx.fillStyle='#ccb'; ctx.font='12px Courier New'; ctx.fillText(pt.desc, x0+10, y+40);
+    ctx.font='14px Arial'; ctx.fillStyle='#ffe';
+    ctx.fillText(Object.entries(pt.need).map(([k,n])=>`${INGREDIENTS[k].icon}${ingredients[k]||0}/${n}`).join('  '), x0+10, y+55);
+    const b={x:x0+rw-150, y:y+12, w:140, h:34};
+    ctx.fillStyle=ok?'rgba(0,140,60,0.95)':'rgba(70,70,70,0.6)'; ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,9); ctx.fill();
+    ctx.fillStyle=ok?'#fff':'#aaa'; ctx.font='bold 14px Courier New'; ctx.textAlign='center'; ctx.fillText(ok?`Brauen [${i+1}]`:'Zutaten fehlen', b.x+b.w/2, b.y+22);
+    brewHits.push({...b, id:pt.id});
+  });
+  if(brewMsg){ ctx.textAlign='center'; ctx.fillStyle=brewMsgCol; ctx.font='bold 14px Courier New'; ctx.fillText(brewMsg, W/2, PY+PH-40); }
+  const cb={x:W/2-90,y:PY+PH-30,w:180,h:24};
+  ctx.fillStyle='rgba(120,30,30,0.85)'; ctx.beginPath(); ctx.roundRect(cb.x,cb.y,cb.w,cb.h,8); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New'; ctx.textAlign='center'; ctx.fillText('ESC: Schließen', W/2, cb.y+17);
+  brewHits.push({...cb,id:'close'});
+  uiEnd();
+}
+function handleBrewTap(sx,sy){
+  if(!nearBrew()) return false;
+  if(!brewOpen){ const b=getBrewOpenButton(); if(sx>=b.x&&sx<=b.x+b.w&&sy>=b.y&&sy<=b.y+b.h){ brewOpen=true; brewMsg=''; return true; } return false; }
+  const q=uiInv('brew',sx,sy); const h=brewHits.find(b=>q.x>=b.x&&q.x<=b.x+b.w&&q.y>=b.y&&q.y<=b.y+b.h);
+  if(h){ if(h.id==='close') brewOpen=false; else doBrew(h.id); }
+  return true;
+}
+// Trank-Gürtel (Erde/Planeten und Bosskämpfe)
+function potionBeltRects(){
+  const out=[]; let x=12; const y=H-96;
+  for(const pt of POTIONS.filter(p=>p.store)){ out.push({x,y,w:96,h:40,id:pt.id,pt}); x+=104; }
+  return out;
+}
+function drawPotionBelt(){
+  if(!(gs===S.SURFACE||isMissileState())) return;
+  const any=POTIONS.some(p=>p.store&&potions[p.id]>0);
+  if(!any && potionAtk<=0) return;
+  for(const r of potionBeltRects()){
+    const n=potions[r.id]||0;
+    ctx.fillStyle=n?'rgba(60,30,90,0.85)':'rgba(40,40,50,0.5)'; ctx.strokeStyle=n?'#c9f':'#555'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(r.x,r.y,r.w,r.h,10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=n?'#fff':'#888'; ctx.font='bold 15px Arial'; ctx.textAlign='center';
+    ctx.fillText(`${r.pt.icon} ${r.pt.key} ×${n}`, r.x+r.w/2, r.y+26);
+  }
+  if(potionAtk>0){
+    ctx.fillStyle='#ffaa33'; ctx.font='bold 14px Courier New'; ctx.textAlign='left';
+    ctx.fillText(`⚔️ Doppel-Angriff ${Math.ceil(potionAtk/60)} s`, 12, H-104);
+  }
+}
+function handlePotionTap(sx,sy){
+  if(!(gs===S.SURFACE||isMissileState())) return false;
+  const r=potionBeltRects().find(b=>sx>=b.x&&sx<=b.x+b.w&&sy>=b.y&&sy<=b.y+b.h);
+  if(r && (potions[r.id]>0)){ drinkPotion(r.id); return true; }
+  return false;
+}
+function handleForestTap(sx,sy){
+  if(gs!==S.SURFACE || currentPlanet!=='forest' || inRocket) return false;
+  const b=getBombButton(); if(sx>=b.x&&sx<=b.x+b.w&&sy>=b.y&&sy<=b.y+b.h){ forestPlaceBomb(); return true; }
+  return false;
+}
+function drawForestButton(){
+  if(gs!==S.SURFACE || currentPlanet!=='forest' || inRocket) return;
+  const b=getBombButton(), ready=!forestBombs.length;
+  ctx.fillStyle=ready?'rgba(140,60,20,0.9)':'rgba(60,60,60,0.7)'; ctx.strokeStyle=ready?'#fc8':'#666'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,12); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.font='bold 16px Courier New'; ctx.textAlign='center'; ctx.fillText('💣 Bombe (B)', b.x+b.w/2, b.y+31);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 //  TAUSCHKIOSK (Erde): Kronen → Diamanten, Rubin → Diamanten, Rubin → Kronen
 // ═══════════════════════════════════════════════════════════════════
 function nearExchange(){ return gs===S.SURFACE && currentPlanet==='earth' && !inRocket && Math.abs(hero.x-990)<90; }
@@ -5740,14 +6078,14 @@ function setupRubyWorld(rng, gy){
 
   // Boss at top center — appears FROM THE START to protect eggs
   const rt=beginBossTier('ruby');
-  rubyBoss = { hp:tierHp(800,rt), maxHp:tierHp(800,rt), hits:0, x:W/2-80, y:80,
+  rubyBoss = { hp:tierHp(1600,rt), maxHp:tierHp(1600,rt), hits:0, x:W/2-80, y:80,
     vx:1.5, vy:0, w:160, h:160, dead:false, deadTimer:0,
     shootTimer:50, phase:0, laserAngle:0 };
 
   // Eggs flanking the boss — boss patrols between them
   rubyEggs = [
-    { x:60,    y:80, w:60, h:72, hp:tierHp(100,rt), maxHp:tierHp(100,rt), hits:0, dead:false, deadTimer:0, side:'left' },
-    { x:Math.max(200, W-120), y:80, w:60, h:72, hp:tierHp(100,rt), maxHp:tierHp(100,rt), hits:0, dead:false, deadTimer:0, side:'right' }
+    { x:60,    y:80, w:60, h:72, hp:tierHp(200,rt), maxHp:tierHp(200,rt), hits:0, dead:false, deadTimer:0, side:'left' },
+    { x:Math.max(200, W-120), y:80, w:60, h:72, hp:tierHp(200,rt), maxHp:tierHp(200,rt), hits:0, dead:false, deadTimer:0, side:'right' }
   ];
 
   rubyLasers=[]; rubyProjectiles=[];
@@ -6594,13 +6932,13 @@ function startSplashBoss(){
   rubyShelter = { x:W/2-45, y:gy-58, w:90, h:58, hp:600, maxHp:600, destroyed:false };
   // Boss
   const st=beginBossTier('splash');
-  splashBoss = { hp:tierHp(600,st), maxHp:tierHp(600,st), hits:0, x:W/2-85, y:50, vx:1.5*tierSpd(st), vy:0, w:170, h:150,
+  splashBoss = { hp:tierHp(1400,st), maxHp:tierHp(1400,st), hits:0, x:W/2-85, y:50, vx:1.5*tierSpd(st), vy:0, w:170, h:150,
     dead:false, deadTimer:0, shootTimer:60, phase:0, breathTimer:0 };
   // 3 Ice birds (instead of 2 eggs)
   splashBirds = [
-    { x:80,      y:80,  w:50, h:40, hp:tierHp(80,st), maxHp:tierHp(80,st), hits:0, vx:1.2, vy:0, dead:false, deadTimer:0, phase:Math.random()*Math.PI*2 },
-    { x:W-130,   y:80,  w:50, h:40, hp:tierHp(80,st), maxHp:tierHp(80,st), hits:0, vx:-1.2, vy:0, dead:false, deadTimer:0, phase:Math.random()*Math.PI*2 },
-    { x:W/2-25,  y:40,  w:50, h:40, hp:tierHp(80,st), maxHp:tierHp(80,st), hits:0, vx:1.0, vy:0, dead:false, deadTimer:0, phase:Math.random()*Math.PI*2 }
+    { x:80,      y:80,  w:50, h:40, hp:tierHp(160,st), maxHp:tierHp(160,st), hits:0, vx:1.2, vy:0, dead:false, deadTimer:0, phase:Math.random()*Math.PI*2 },
+    { x:W-130,   y:80,  w:50, h:40, hp:tierHp(160,st), maxHp:tierHp(160,st), hits:0, vx:-1.2, vy:0, dead:false, deadTimer:0, phase:Math.random()*Math.PI*2 },
+    { x:W/2-25,  y:40,  w:50, h:40, hp:tierHp(160,st), maxHp:tierHp(160,st), hits:0, vx:1.0, vy:0, dead:false, deadTimer:0, phase:Math.random()*Math.PI*2 }
   ];
   splashIcicles = [];
   jetpackOn = false; jetpackFuel = jpMaxFuel(); jetpackAlt = 200;
@@ -8237,7 +8575,7 @@ canvas.addEventListener('click', e=>{
     return;
   }
   { const r=canvas.getBoundingClientRect(); const sx=(e.clientX-r.left)*(W/r.width), sy=(e.clientY-r.top)*(H/r.height);
-    if(!dialog && handleExchangeTap(sx,sy)) return;
+    if(!dialog && (handleExchangeTap(sx,sy)||handleBrewTap(sx,sy)||handleForestTap(sx,sy)||handlePotionTap(sx,sy))) return;
     if(handleMissileTap(sx,sy)) return; }
   { const r=canvas.getBoundingClientRect();
     const cx=(e.clientX-r.left)*(W/r.width), cy=(e.clientY-r.top)*(H/r.height);
@@ -8593,6 +8931,7 @@ function renderSurface(){
     drawHouse(1130, gy);
     drawKioskBuilding(1320, gy);
     drawChest(1490, gy, false);  // Immer sichtbar
+    drawBrewStand(BREW_X, gy);
   }
 
   // Platforms
@@ -8625,6 +8964,7 @@ function renderSurface(){
   drawRocket(srkt.x+srkt.w/2,srkt.y+srkt.h*0.7,0,false);
 
   // Hero
+  if(currentPlanet==='forest') drawForestTrees(gy);
   if(!inRocket) drawHero2(hero.x,hero.y);
 
   // Stone monsters
@@ -8665,6 +9005,7 @@ function renderSurface(){
     ctx.fillStyle=mg; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
   }
 
+  if(currentPlanet==='forest') drawForestWorld(gy);
   drawFX();
   ctx.restore(); // end camX
 
@@ -8701,11 +9042,15 @@ function renderSurface(){
     ctx.textAlign='center'; ctx.fillStyle='#ff4466'; ctx.font='bold '+Math.round(14*HUD.k)+'px Courier New';
     ctx.fillText('🔴 Rubinplanet  |  8-Kopf-Monster!',W/2,HUD.row3);
   }
+  if(currentPlanet==='forest'){
+    ctx.textAlign='center'; ctx.fillStyle='#9f9'; ctx.font='bold '+Math.round(15*HUD.k)+'px Courier New';
+    ctx.fillText(forestInfoText(),W/2,HUD.row3);
+  }
   if(currentPlanet==='earth' && !inRocket){
     const KIOSK_X=1320;
     // Wegweiser (immer sichtbar auf der Erde)
     ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font='12px Courier New'; ctx.textAlign='center';
-    ctx.fillText('🏠(1130)  🛒(1320)  🎁(1490)  🚀Rakete',W/2,H-32);
+    ctx.fillText('💱(990)  🏠(1130)  🛒(1320)  🎁(1490)  ⚗️(1700)  🚀Rakete',W/2,H-32);
     // Show hero position so player knows where they are
     ctx.fillStyle='rgba(180,220,255,0.7)'; ctx.font='12px monospace'; ctx.textAlign='right';
     ctx.fillText('Pos: '+Math.floor(hero.x), W-10, H-32);
@@ -8736,6 +9081,8 @@ function renderSurface(){
   // Kiosk overlay
   renderKiosk();
   renderExchange();
+  renderBrew();
+  drawForestButton();
 
   // "H" key hint near house on Earth (proximity label drawn in drawHouse already)
   // "O" key hint near chest handled in drawChest
@@ -8744,9 +9091,7 @@ function renderSurface(){
     ctx.fillStyle='rgba(255,255,0,0.9)'; ctx.font='11px monospace'; ctx.textAlign='left';
     const debugKeys=['KeyE','KeyO','KeyH','KeyK','KeyF','KeyW'];
     const active=debugKeys.filter(k=>keys[k]);
-    ctx.fillText('keys: ['+active.join(',')+'] cd:'+interactCooldown+' hx:'+Math.floor(hero.x), 10, H-60);
     const CHEST_X=1490,KIOSK_X=1320,HOUSE_X=1130;
-    ctx.fillText('near chest:'+(Math.abs(hero.x-CHEST_X)<65)+' kiosk:'+(Math.abs(hero.x-KIOSK_X)<65)+' house:'+(Math.abs(hero.x-HOUSE_X)<65), 10, H-48);
   }
 
 }
@@ -9463,7 +9808,7 @@ function handleGameAreaTap(x, y) {
 
   // 💾 Save-Button oben links
   if ((gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog && (()=>{const b=getSaveButtonRect(); return cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h;})()) { openSaveMenu(); return; }
-  if (!dialog && handleExchangeTap(cx, cy)) return;
+  if (!dialog && (handleExchangeTap(cx, cy)||handleBrewTap(cx, cy)||handleForestTap(cx, cy)||handlePotionTap(cx, cy))) return;
   // Eis-Lenkrakete button in boss fights
   if (handleMissileTap(cx, cy)) return;
   // Question gates (Rubin / Wasserbomben)
