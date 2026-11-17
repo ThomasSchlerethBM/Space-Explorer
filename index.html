@@ -1875,18 +1875,203 @@ function questionPool(subj){
   const g=+CURR_CFG.grade||3, d=+CURR_CFG.maxDifficulty||3, okD=q=>(+q.difficulty||1)<=d;
   return { all, cur:all.filter(q=>qGrade(q)===g && qCovered(q) && okD(q)), review:all.filter(q=>qGrade(q)<g && okD(q)) };
 }
+// ── Zufallszahlen für Rechenaufgaben ─────────────────────────────
+// Jede Rechenaufgabe bekommt bei jedem Stellen neue Zahlen. Stellenzahl,
+// Endnullen (z. B. 60, 500), Zehnerübergänge/Überträge und der
+// Einmaleins-Bereich bleiben gleich – damit bleibt die Schwierigkeit gleich.
+// Nicht-Rechenfragen (Uhrzeit, Stellenwert, Wissen …) bleiben unverändert.
+const RAND_MATH = true;
+function _rint(a,b){ return a+Math.floor(Math.random()*(b-a+1)); }
+function _shape(n){ const s=String(n); let t=0; while(t<s.length-1 && s[s.length-1-t]==='0') t++; return {d:s.length,t}; }
+function _anchor(n){ return n<=1 || n===10 || n===100 || n===1000; }
+function _same(v,o,fam){
+  if(_anchor(o)||(fam==='mul'&&o===2)) return v===o;
+  if(v<2) return false;
+  const a=_shape(v), b=_shape(o); return a.d===b.d && a.t===b.t;
+}
+function _genLike(n,fam){
+  if(_anchor(n) || (fam==='mul' && n===2)) return n;
+  const {d,t}=_shape(n), p=Math.pow(10,t), core=n/p, cd=d-t; let c;
+  if(cd===1){
+    if(fam==='mul') c = core>=6?_rint(6,9) : core>=3?_rint(3,6) : core;
+    else c=_rint(2,9);
+  } else { const lo=Math.pow(10,cd-1), hi=Math.pow(10,cd)-1; do{ c=_rint(lo,hi); }while(c%10===0); }
+  return c*p;
+}
+function _carries(x,y){ let c=0,o=''; while(x>0||y>0){ const s=x%10+y%10+c; c=s>=10?1:0; o+=c; x=Math.floor(x/10); y=Math.floor(y/10);} return o; }
+// x + y = z mit gleicher Gestalt und gleichen Überträgen
+function _genAdd(ox,oy,oz){
+  const pat=_carries(ox,oy);
+  for(let k=0;k<2400;k++){
+    const m=k%3; let x,y,z;
+    if(m===0){ x=_genLike(ox); y=_genLike(oy); z=x+y; }
+    else if(m===1){ z=_genLike(oz); x=_genLike(ox); y=z-x; }
+    else { z=_genLike(oz); y=_genLike(oy); x=z-y; }
+    if(x<1||y<1) continue;
+    if(!_same(x,ox)||!_same(y,oy)||!_same(z,oz)) continue;
+    if(_carries(x,y)!==pat) continue;
+    if(x===ox && y===oy && k<2300) continue;
+    return [x,y,z];
+  }
+  return null;
+}
+// f1 · f2 = p mit gleichem Einmaleins-Bereich und gleich vielen Stellen im Ergebnis
+function _genMul(o1,o2,op){
+  for(let k=0;k<1200;k++){
+    const f1=_genLike(o1,'mul'), f2=_genLike(o2,'mul'), p=f1*f2;
+    if(String(p).length!==String(op).length || p>1000) continue;
+    if(f1===o1 && f2===o2 && k<1100) continue;
+    return [f1,f2,p];
+  }
+  return null;
+}
+function _parts(y){ const s=String(y), out=[]; for(let i=0;i<s.length;i++){ const v=+s[i]*Math.pow(10,s.length-1-i); if(v) out.push(v); } return out; }
+function _chain(start,parts,sign,M){ let cur=start, s=''; parts.forEach((p,i)=>{ cur = sign>0?cur+p:cur-p; s += (i?', ':'')+(i?'':start+' ')+(sign>0?'+ ':M+' ')+p+' = '+cur; }); return s; }
+function _explFor(kind,v,sym){
+  const MI=sym.minus||'−', MU=sym.mul||'·', DV=sym.div||':';
+  if(kind==='sum'){ const [x,y,z]=v;
+    if(y<10 && x%10+y>=10 && x%10){ const a=10-x%10; return `${x} + ${a} = ${x+a}, dann + ${y-a} = ${z}`; }
+    if(y<10) return `${x} + ${y} = ${z}`;
+    return _chain(x,_parts(y),1,MI); }
+  if(kind==='diff'){ const [x,y,z]=v; // z − x = y
+    let s;
+    if(x<10 && z%10<x && z%10){ const a=z%10; s=`${z} ${MI} ${a} = ${z-a}, dann ${MI} ${x-a} = ${y}`; }
+    else if(x<10) s=`${z} ${MI} ${x} = ${y}`;
+    else s=_chain(z,_parts(x),-1,MI);
+    return s+`. Prüfe: ${y} + ${x} = ${z}`; }
+  if(kind==='miss'){ const [x,y,z]=v; return `${z} ${MI} ${x} = ${y}, denn ${x} + ${y} = ${z}`; }
+  if(kind==='mul'){ const [a,b,p]=v;
+    for(const [r,o] of [[a,b],[b,a]]){ if(r>=20 && r%10===0 && o<10 && !_anchor(r)) return `${r/10} ${MU} ${o} = ${r/10*o}, eine Null mehr: ${p}`; }
+    if(a===2||b===2){ const o=a===2?b:a; return `${o} + ${o} = ${p}`; }
+    if(a>5 && a<10 && b<=10) return `5 ${MU} ${b} = ${5*b} und ${a-5} ${MU} ${b} = ${(a-5)*b}, zusammen ${p}`;
+    return `${a} ${MU} ${b} = ${p}`; }
+  if(kind==='div'){ const [f,c,p]=v; if(f===2) return `${c} + ${c} = ${p}, also ist die Hälfte von ${p} gleich ${c}`; return `Umkehraufgabe: ${c} ${MU} ${f} = ${p}, also ${p} ${DV} ${f} = ${c}`; }
+  return '';
+}
+function _subNums(s,M){
+  if(!s) return null; const ns=String(s).match(/\d+/g)||[];
+  if(!ns.length || !ns.every(n=>M.has(+n))) return null;
+  return String(s).replace(/\d+/g,n=>String(M.get(+n)));
+}
+function randomizeMathQ(q){
+  try{
+    if(!RAND_MATH || !q || q.subject!=='Mathematik' || q.norand) return q;
+    const txt=String(q.q||'');
+    if(/Uhr|\d:\d\d|\d,\d|[½¼¾]/.test(txt)) return q;
+    const ansStr=String(q.type==='mc' ? q.choices[q.a] : q.a).trim();
+    if(!/^\d+$/.test(ansStr)) return q;
+    if(q.type==='mc' && !q.choices.every(c=>/^\s*\d+\s*$/.test(String(c)))) return q;
+    const ans=+ansStr;
+    const nums=[...txt.matchAll(/\d+/g)].map(m=>({v:+m[0],i:m.index,len:m[0].length}));
+    if(!nums.length || nums.some(n=>n.v>10000)) return q;
+    const opChars=[...txt.matchAll(/(?:\d|\?)\s*([+\-−–×·*÷:])\s*(?=\d|\?)/g)].map(m=>m[1]);
+    const famAdd=opChars.some(c=>'+-−–'.includes(c)), famMul=opChars.some(c=>'×·*÷:'.includes(c));
+    const sym={ minus:opChars.find(c=>'-−–'.includes(c))||'−', mul:opChars.find(c=>'×·*'.includes(c))||'·', div:opChars.find(c=>'÷:'.includes(c))||':' };
+    let newVals=null, newAns=null, kind='', kv=null;
+
+    // a) Zahlenfolge: „Setze fort: 105, 110, 115, ?"
+    if(nums.length>=3 && /Setze fort|Folge|weiter/i.test(txt)){
+      const step=nums[1].v-nums[0].v;
+      if(nums.every((n,i)=>n.v===nums[0].v+i*step) && ans===nums[0].v+nums.length*step){
+        for(let k=0;k<400;k++){
+          const s=_genLike(nums[0].v), seq=nums.map((_,i)=>s+i*step), a=s+nums.length*step;
+          if(s===nums[0].v && k<390) continue;
+          if(a<1 || [...seq,a].some((v,i)=>v<1 || String(v).length!==String(i<nums.length?nums[i].v:ans).length)) continue;
+          newVals=seq; newAns=a; break;
+        }
+        if(!newVals) return q;
+        kind='seq';
+      } else return q;
+    }
+    // b) gleiche Zahl mehrmals addiert: „15 + 15 + 15 = ?"
+    else if(nums.length>=2 && nums.every(n=>n.v===nums[0].v) && famAdd && !famMul && ans===nums[0].v*nums.length){
+      const v=nums[0].v, cnt=nums.length;
+      for(let k=0;k<400;k++){ const n=_genLike(v); if(n===v&&k<390) continue;
+        if(String(n*cnt).length!==String(ans).length) continue; newVals=nums.map(()=>n); newAns=n*cnt; break; }
+      if(!newVals) return q;
+      kind='rep'; kv=[newVals[0],cnt,newAns];
+    }
+    // c) eine Zahl mit Schlüsselwort: Doppeltes / Dreifache / Hälfte
+    else if(nums.length===1){
+      const v=nums[0].v; let f=0, div=false;
+      if(/doppelt/i.test(txt)) f=2; else if(/dreifach/i.test(txt)) f=3; else if(/vierfach/i.test(txt)) f=4;
+      else if(/hälfte/i.test(txt)){ f=2; div=true; }
+      if(!f) return q;
+      if(!div && ans===v*f){ const r=_genMul(f,v,ans); if(!r) return q; newVals=[r[1]]; newAns=r[2]; kind='mul'; kv=[f,r[1],r[2]]; }
+      else if(div && ans*f===v){ const r=_genMul(f,ans,v); if(!r) return q; newVals=[r[2]]; newAns=r[1]; kind='div'; kv=[f,r[1],r[2]]; }
+      else return q;
+    }
+    // d) zwei Zahlen: Rechenart aus Ergebnis ableiten
+    else if(nums.length===2){
+      const a=nums[0].v, b=nums[1].v, cands=[];
+      if(a===b){
+        if(famMul && ans===a*a) cands.push({fam:'mul',k:'sq'});
+        if(famAdd && ans===a+a) cands.push({fam:'add',k:'dbl'});
+      } else {
+        if(ans===a+b) cands.push({fam:'add',k:'sum'});
+        if(ans===a-b) cands.push({fam:'add',k:'aminb'});
+        if(ans===b-a) cands.push({fam:'add',k:'bmina'});
+        if(ans===a*b) cands.push({fam:'mul',k:'prod'});
+        if(b && ans*b===a) cands.push({fam:'mul',k:'adivb'});
+        if(a && ans*a===b) cands.push({fam:'mul',k:'bdiva'});
+      }
+      let ok=cands;
+      if(famAdd||famMul) ok=cands.filter(c=>(c.fam==='add'&&famAdd)||(c.fam==='mul'&&famMul));
+      if(ok.length!==1) return q;
+      const c=ok[0];
+      if(c.k==='sq'){ for(let k=0;k<400;k++){ const n=_genLike(a,'mul'); if(n===a&&k<390) continue; if(String(n*n).length!==String(ans).length) continue; newVals=[n,n]; newAns=n*n; kind='mul'; kv=[n,n,n*n]; break; } }
+      else if(c.k==='dbl'){ for(let k=0;k<400;k++){ const n=_genLike(a); if(n===a&&k<390) continue; if(_carries(n,n)!==_carries(a,a)||String(2*n).length!==String(ans).length) continue; newVals=[n,n]; newAns=2*n; kind='sum'; kv=[n,n,2*n]; break; } }
+      else if(c.k==='sum'){ const r=_genAdd(a,b,ans); if(r){ newVals=[r[0],r[1]]; newAns=r[2]; kind='sum'; kv=r; } }
+      else if(c.k==='aminb'){ const r=_genAdd(b,ans,a); if(r){ newVals=[r[2],r[0]]; newAns=r[1]; kind='diff'; kv=r; } }
+      else if(c.k==='bmina'){ const r=_genAdd(a,ans,b); if(r){ newVals=[r[0],r[2]]; newAns=r[1]; kind='miss'; kv=r; } }
+      else if(c.k==='prod'){ const r=_genMul(a,b,ans); if(r){ newVals=[r[0],r[1]]; newAns=r[2]; kind='mul'; kv=r; } }
+      else if(c.k==='adivb'){ const r=_genMul(b,ans,a); if(r){ newVals=[r[2],r[0]]; newAns=r[1]; kind='div'; kv=r; } }
+      else if(c.k==='bdiva'){ const r=_genMul(a,ans,b); if(r){ newVals=[r[0],r[2]]; newAns=r[1]; kind='div'; kv=r; } }
+      if(!newVals) return q;
+    }
+    else return q;
+
+    // Text neu zusammensetzen
+    let out=txt;
+    for(let i=nums.length-1;i>=0;i--) out=out.slice(0,nums[i].i)+newVals[i]+out.slice(nums[i].i+nums[i].len);
+    if(out===txt) return q;
+    // Zuordnung alt → neu für Erklärungen
+    const M=new Map(); let clash=false;
+    const put=(o,n)=>{ if(M.has(o)&&M.get(o)!==n) clash=true; M.set(o,n); };
+    nums.forEach((n,i)=>put(n.v,newVals[i])); put(ans,newAns);
+    let expl = clash?null:_subNums(q.expl,M);
+    if(!expl){
+      if(kind==='seq'){ const st=nums[1].v-nums[0].v; expl=`Die Regel ist ${st>=0?'+':'−'}${Math.abs(st)}.`; }
+      else if(kind==='rep') expl=`${kv[1]} · ${kv[0]} = ${kv[2]}`;
+      else expl=_explFor(kind,kv,sym);
+    }
+    const r={...q, q:out, expl, hint:expl, randomized:true};
+    if(q.type==='mc'){
+      const offs=q.choices.map(c=>+c-ans);
+      let ch=offs.map(o=>newAns+o);
+      if(ch.some(v=>v<1) || new Set(ch).size!==ch.length){
+        const pool=[1,-1,2,-2,10,-10,3,-3].map(o=>newAns+o).filter(v=>v>=1);
+        ch=q.choices.map((_,i)=>i===q.a?newAns:null);
+        for(let i=0;i<ch.length;i++) if(ch[i]===null){ const v=pool.find(p=>!ch.includes(p)); ch[i]=v; }
+      }
+      r.choices=ch.map(String); r.a=q.a;
+    } else r.a=String(newAns);
+    return r;
+  }catch(e){ return q; }
+}
+
 function pickQuestions(subj, n){
   const {all,cur,review}=questionPool(subj);
   const sm=currStichMonth();
   const recent=cur.filter(q=>q.li && qMonth(q)>=sm-1);
   const used=new Set(), out=[];
   const take=arr=>{ const c=arr.filter(q=>!used.has(q)); if(!c.length) return false;
-    const q=c[Math.floor(Math.random()*c.length)]; used.add(q); out.push({...q,subject:subj}); return true; };
+    const q=c[Math.floor(Math.random()*c.length)]; used.add(q); out.push(randomizeMathQ({...q,subject:subj})); return true; };
   for(let i=0;i<n;i++){
     if(review.length && Math.random()*100<(+CURR_CFG.reviewPct||0) && take(review)) continue;
     if(CURR_CFG.preferRecent && recent.length && Math.random()<0.6 && take(recent)) continue;
     if(take(cur) || take(review) || take(all)) continue;
-    if(all.length) out.push({...all[Math.floor(Math.random()*all.length)],subject:subj});
+    if(all.length) out.push(randomizeMathQ({...all[Math.floor(Math.random()*all.length)],subject:subj}));
   }
   return out;
 }
