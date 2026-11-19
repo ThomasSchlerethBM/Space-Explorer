@@ -609,6 +609,7 @@ window.addEventListener('keydown', e => {
   }
   // Waffenschrank im Schloss
   if(gs===S.CASTLE && armoryOpen && !dialog){ e.preventDefault(); delete justDown[e.code]; handleArmoryKey(e.code); return; }
+  if(gs===S.CASTLE && armyUiOpen && !dialog){ e.preventDefault(); delete justDown[e.code]; handleArmyUiKey(e.code); return; }
   // Math quiz input
   if(mathQuiz){ e.preventDefault(); handleMathKey(e.code, e.key); }
   // Diamond planet quest input (answer handling)
@@ -1381,7 +1382,7 @@ function setupSurface(planetId){
     setupForestWorld(rng, gy);
   } else if(planetId==='ruby') {
     setupRubyWorld(rng, gy);
-    setTimeout(()=>{ if(currentPlanet==='ruby') gs=S.RUBY_BOSS; }, 500);
+    setTimeout(()=>{ if(currentPlanet==='ruby'){ bossFightNo++; gs=S.RUBY_BOSS; } }, 500);
   } else {
     // Reachable staircase platform chains (gravity-aware)
     buildReachablePlatforms(planetId, rng, gy, PLANET_DATA[planetId].gravity);
@@ -2524,6 +2525,7 @@ function showCutscene(lines, onDone){
 
 // ─── BOSS SETUP ──────────────────────────────────────────────────
 function startBossFight(){
+  bossFightNo++;
   gs=S.BOSS;
   const t=beginBossTier('boss_'+currentPlanet);
   boss.x=W*0.65; boss.y=H*0.35;
@@ -3781,6 +3783,7 @@ function render(){
   if(gs===S.SURFACE || isMissileState()) drawGoldTrails();
   if(isMissileState()){ drawBossTierOverlay(); drawImmobilized(); if(goldActive()) drawGoldPowers(); drawIceMissiles(); }
   drawPotionBelt();
+  drawMegaButton();
   drawArmyToasts();
   // Mobile touch UI update
   if(mobileMode) { updateTouchUI(); drawVirtualButtons(); }
@@ -4318,7 +4321,7 @@ function drawFX(){
 //  SCHLOSS AUF DER ERDE + WACHEN-ARMEE
 // ═══════════════════════════════════════════════════════════════════
 const EARTH_CASTLE_X = 600;            // Mitte des Schlosses (Tor)
-const GUARD_PACK = 10, GUARD_PRICE = 100, GUARD_MAX = 50;
+const GUARD_PACK = 10, GUARD_PRICE = 100, GUARD_MAX = 200;
 let castleGreetT = 0;            // Gruß-Anzeige der Torwachen
 
 function nearCastle(){ return gs===S.SURFACE && currentPlanet==='earth' && !inRocket && Math.abs(hero.x+hero.w/2-EARTH_CASTLE_X)<75; }
@@ -4500,13 +4503,13 @@ const GEAR_TITLES = ['🛡️ Rüstungen','💧 Wasserkanonen','⚔️ Waffen'];
 
 let guards = [], guardSerial = 0;
 let armyGs = null, armyGY = null, armyToasts = [];
-function newGuard(){ return { id:++guardSerial, lvl:1, xp:0, hp:GUARD_HP, sh:100, armor:'gold', cannon:'spritz', weapon:'spear', auto:true }; }
+function newGuard(){ return { id:++guardSerial, lvl:1, xp:0, hp:GUARD_HP, sh:100, armor:'gold', cannon:'spritz', weapon:'spear', auto:true, dep:deployedCount()<DEPLOY_MAX }; }
 function gearOf(list,id){ return list.find(x=>x.id===id) || list[0]; }
 function gearFree(g,item){ return !!g && g.lvl>=item.lvl; }
 function bestGear(list,g){ let b=list[0]; for(const it of list) if(g.lvl>=it.lvl && (list!==GUARD_WEAPONS || it.melee>=b.melee)) b=it; return b; }
 function equipBest(g){ g.armor=bestGear(GUARD_ARMORS,g).id; g.cannon=bestGear(GUARD_CANNONS,g).id; g.weapon=bestGear(GUARD_WEAPONS,g).id; }
 function guardXpNeed(l){ return Math.round((2 + l*0.05) * 60); }   // Bildfelder Training je Level
-function saveGuard(g){ return { id:g.id, lvl:g.lvl, xp:Math.floor(g.xp), hp:Math.round(g.hp), sh:Math.round(g.sh), armor:g.armor, cannon:g.cannon, weapon:g.weapon, auto:g.auto!==false }; }
+function saveGuard(g){ return { id:g.id, lvl:g.lvl, xp:Math.floor(g.xp), hp:Math.round(g.hp), sh:Math.round(g.sh), armor:g.armor, cannon:g.cannon, weapon:g.weapon, auto:g.auto!==false, dep:g.dep!==false }; }
 function loadGuards(entry){
   guards=[]; guardSerial=0;
   if(Array.isArray(entry.guards)){
@@ -4639,6 +4642,7 @@ function armyAlive(o){
 // Ziele: im Bosskampf der Boss (und Rubin-Eier), sonst die Monster auf dem Planeten
 function armyTargets(){
   const out=[], add=a=>{ if(Array.isArray(a)) for(const o of a) if(armyAlive(o)) out.push(o); };
+  if(megaFoe && !megaFoe.dropping && isEndboss()) out.push(megaFoe);
   if(gs===S.BOSS){ if(armyAlive(boss)) out.push(boss); }
   else if(gs===S.DIAMOND_BOSS){ if(armyAlive(diamondBoss)) out.push(diamondBoss); }
   else if(gs===S.GOLD_BOSS){ if(armyAlive(goldBossData)) out.push(goldBossData); }
@@ -4667,16 +4671,22 @@ function guardHit(g, dmg){
   g.hp-=dmg*(1-A.prot); g._hitT=12;
 }
 function updateArmy(){
-  if(!guards.length) return;
-  const snap = armyGs!==gs; if(snap) armyGY=null; armyGs=gs;
-  const n=guards.length, gyA=armyGround(), hc=hero.x+hero.w/2;
+  for(const g of guards) if(!g.dep){ g.hp=Math.min(GUARD_HP,g.hp+0.05); g.sh=Math.min(100,g.sh+0.05); }  // ruhen im Schloss
+  const snap = armyGs!==gs; if(snap){ armyGY=null; megaFoe=null; megaFoeDone=false; megaFoeShots=[]; if(mega) mega.x=hero.x+hero.w/2-(hero.facing||1)*60; } armyGs=gs;
+  if(bossFightNo!==megaFoeRef){ megaFoeRef=bossFightNo; megaFoe=null; megaFoeDone=false; megaFoeShots=[]; }   // neuer Bosskampf
+  if(!guards.length && !mega && !megaFoe) return;
+  const list=armyList();
+  const n=list.length, gyA=armyGround(), hc=hero.x+hero.w/2;
   const f=hero.facing||1, inR=(gs===S.SURFACE && inRocket);
   const targets=inR?[]:armyTargets(), wantShoot=!!keys['KeyW'] && !inR, shots=inR?[]:armyEnemyShots();
+  updateMega(gyA, targets, shots);
+  if(mega && isEndboss() && !megaFoe && !megaFoeDone) spawnMegaFoe(gyA);
+  updateMegaFoe(gyA); updateMegaFoeShots(gyA);
   const span=30+Math.min(n,GUARD_PACK)*23+11, minX=10, maxX=(gs===S.SURFACE?WORLD_W:W)-10;
   let side=-f;                                            // normalerweise hinter dem Astronauten
   if(hc+side*span<minX || hc+side*span>maxX) side=-side;  // kein Platz → auf die andere Seite
   const range = gs===S.SURFACE ? 560 : 2400;
-  guards.forEach((g,i)=>{
+  list.forEach((g,i)=>{
     const row=Math.floor(i/GUARD_PACK), col=i%GUARD_PACK;
     const tx=Math.max(minX,Math.min(maxX, hc + side*(30 + col*23 + (row%2)*11)));
     if(snap || g._x===undefined){ g._x=tx; g._walk=0; g._cd=Math.floor(Math.random()*40); g._shootT=0; g._melee=0; g._touch=0; }
@@ -4733,24 +4743,414 @@ function updateArmy(){
     armyToast(dead.length===1 ? `💥 Wache #${dead[0].id} (Lv ${dead[0].lvl}) ist kaputt gegangen!` : `💥 ${dead.length} Wachen sind kaputt gegangen!`, '#ff9a9a');
   }
 }
-function drawArmy(){
-  if(!guards.length || guards[0]._x===undefined) return;
+// ═══════════════════════════════════════════════════════════════════
+//  ARMEE ZUSAMMENSTELLEN + MEGA-WÄCHTER + MEGA-ENDGEGNER
+// ═══════════════════════════════════════════════════════════════════
+const DEPLOY_MAX = 100, MEGA_MIN = 10;
+let megaFoeRef = 0, bossFightNo = 0;
+let mega = null, megaAnim = null, megaCool = 0, megaFoe = null, megaFoeDone = false, megaFoeShots = [], megaBtn = null;
+function armyList(){ return guards.filter(g=>g.dep && !g.inMega); }
+function deployedCount(){ return guards.filter(g=>g.dep).length; }
+function isEndboss(){ return gs===S.BOSS||gs===S.DIAMOND_BOSS||gs===S.GOLD_BOSS||gs===S.RUBY_BOSS||gs===S.SPLASH_BOSS; }
+function megaAllowedState(){ return (gs===S.SURFACE && !inRocket) || isEndboss(); }
+function megaScaleFor(n){ return Math.min(8, 2 + n*0.07); }
+function megaDims(sc){ return { w:20*sc, h:42*sc }; }
+
+// ── Verwandeln ──
+function megaToggle(){ if(mega) megaSplit(false); else megaForm(); }
+function megaForm(){
+  if(mega || megaAnim) return;
+  if(megaCool>0){ armyToast(`🤖 Der Mega-Wächter braucht noch ${Math.ceil(megaCool/60)} s Pause.`,'#fc9'); return; }
+  const list=armyList().filter(g=>g._x!==undefined);
+  if(list.length<MEGA_MIN){ armyToast(`🤖 Für den Mega-Wächter brauchst du mindestens ${MEGA_MIN} Wachen dabei (jetzt ${list.length}).`,'#fc9'); return; }
+  const D=megaDims(megaScaleFor(list.length)), hc=hero.x+hero.w/2, maxX=(gs===S.SURFACE?WORLD_W:W)-10-D.w/2, minX=10+D.w/2;
+  let side=-(hero.facing||1), off=30+D.w*0.7; if(hc+side*off<minX||hc+side*off>maxX) side=-side;
+  const cx=Math.max(minX,Math.min(maxX,hc+side*off));
+  list.forEach(g=>{ if(Math.abs(g._x-cx)>W*0.6) g._x=cx+(g._x>cx?1:-1)*W*0.45; });   // Nachzügler holen auf
+  list.forEach(g=>{ g._fx=g._x; g._fy=(g._row||0)*10; g.inMega=true; });
+  megaAnim={ t:0, dur:55, members:list, cx };
+  [262,330,392,523,659,784].forEach((f,i)=>setTimeout(()=>playFX(f,0.12,'square',0.1),i*80));
+}
+function megaBuild(list, cx){
+  let hp=0, dmg=0, mel=0, prot=0, best=list[0];
+  for(const g of list){
+    hp+=g.hp; const C=gearOf(GUARD_CANNONS,g.cannon); dmg+=C.dmg*C.shots;
+    mel+=gearOf(GUARD_WEAPONS,g.weapon).melee; prot+=gearOf(GUARD_ARMORS,g.armor).prot;
+    if(g.lvl>best.lvl) best=g;
+  }
+  const n=list.length;
+  mega={ ids:list.map(g=>g.id), n, hp, maxHp:n*GUARD_HP, prot:prot/n,
+    dmgShot:Math.max(2,Math.round(dmg*0.62)), melee:Math.max(1,Math.round(mel*0.25)),
+    scale:megaScaleFor(n), armor:best.armor, cannon:best.cannon, weapon:best.weapon,
+    x:cx, cd:30, meleeCd:0, touchCd:0, walk:0, f:hero.facing||1, hitT:0, shootT:0, swingT:0, flash:25 };
+  armyToast(`🤖 MEGA-WÄCHTER aus ${n} Wachen!  ❤ ${Math.round(hp)}`,'#9ff');
+  playFX(110,0.5,'sawtooth',0.15); setTimeout(()=>playFX(880,0.3,'square',0.12),200);
+}
+function megaSplit(destroyed, quiet){
+  if(megaAnim){ megaAnim.members.forEach(g=>{ g.inMega=false; }); megaAnim=null; }
+  if(!mega) return;
+  const ids=new Set(mega.ids), ratio=Math.max(0,mega.hp)/mega.maxHp;
   const gyA = gs===S.SURFACE ? groundY() : (armyGY!==null?armyGY:hero.y+hero.h);
-  for(let i=guards.length-1;i>=0;i--){
-    const g=guards[i]; if(g._x===undefined) continue;
+  guards.forEach(g=>{
+    if(!ids.has(g.id)) return;
+    g.inMega=false;
+    g.hp = destroyed ? 10 : Math.max(1, Math.round(GUARD_HP*ratio));
+    g._x = mega.x + (Math.random()-.5)*mega.scale*24; g._walk=0;
+  });
+  if(!quiet){
+    for(let j=0;j<40;j++) hitFX.push({x:mega.x,y:gyA-megaDims(mega.scale).h/2,vx:(Math.random()-.5)*10,vy:-2-Math.random()*7,life:45,color:['#ffd700','#9ff','#fff','#d6202c'][j%4]});
+    if(destroyed){ megaCool=1200; armyToast('💥 Der Mega-Wächter ist zerfallen! Deine Wachen sind schwer angeschlagen.','#ff9a9a'); playFX(90,0.6,'sawtooth',0.18); }
+    else { armyToast('🤖 Mega-Wächter getrennt – deine Wachen laufen wieder einzeln.','#ffe680'); playFX(523,0.15,'square',0.1); }
+  }
+  mega=null;
+}
+
+// ── Mega-Wächter im Einsatz ──
+function updateMega(gyA, targets, shots){
+  if(megaCool>0) megaCool--;
+  if(!megaAllowedState()) return;
+  if(justDown['KeyM'] && !dialog && !(gs===S.SURFACE && (kioskOpen||mathQuiz))){ delete justDown['KeyM']; megaToggle(); }
+  if(megaAnim){
+    megaAnim.t++;
+    if(megaAnim.t>=megaAnim.dur){ const a=megaAnim; megaAnim=null; megaBuild(a.members, a.cx); }
+    return;
+  }
+  if(!mega) return;
+  const m=mega, D=megaDims(m.scale), hc=hero.x+hero.w/2;
+  const minX=10+D.w/2, maxX=(gs===S.SURFACE?WORLD_W:W)-10-D.w/2;
+  for(const k of ['cd','meleeCd','touchCd','hitT','shootT','swingT','flash']) if(m[k]>0) m[k]--;
+  // Laufziel: hinter dem Astronauten – im Bosskampf zum Mega-Endgegner
+  let tx;
+  if(megaFoe && !megaFoe.dropping){
+    const fc=megaFoe.x+megaFoe.w/2, s=Math.sign(m.x-fc)||1;
+    tx = fc + s*(megaFoe.w/2 + D.w/2 + 2);
+  } else {
+    let side=-(hero.facing||1); const off=30+D.w*0.7;
+    if(hc+side*off<minX || hc+side*off>maxX) side=-side;
+    tx = hc+side*off;
+  }
+  tx=Math.max(minX,Math.min(maxX,tx));
+  const dx=tx-m.x, mv=Math.max(-2.4,Math.min(2.4,dx*0.06));
+  m.x+=mv; m.walk = Math.abs(mv)>0.25 ? m.walk+0.18 : 0;
+  if(!(m.shootT>0)) m.f = megaFoe ? (megaFoe.x+megaFoe.w/2>m.x?1:-1) : (Math.abs(dx)>20?Math.sign(dx):(hero.facing||1));
+  const rx=m.x-D.w/2, ry=gyA-D.h;
+  // Treffer durch gegnerische Geschosse
+  for(const arr of shots){ for(let k=arr.length-1;k>=0;k--){ const p=arr[k];
+    if(circRect(p.x,p.y,p.r||6,rx,ry,D.w,D.h)){ arr.splice(k,1); m.hp-=10*(1-m.prot); m.hitT=8; } } }
+  // Berührung + Nahkampf
+  for(const t of targets){
+    const tw=t.w||40, th=t.h||40;
+    if(!(rx+D.w+10>t.x && rx-10<t.x+tw && gyA>t.y && ry<t.y+th)) continue;
+    if(t!==megaFoe && m.touchCd<=0){ m.hp-=5*(1-m.prot); m.touchCd=30; m.hitT=6; }
+    if(m.meleeCd<=0){ pProjectiles.push({x:t.x+tw/2,y:t.y+th/2,vx:0,vy:0,life:3,r:10,power:m.melee,guard:true,melee:true}); m.meleeCd=40; m.swingT=12; }
+    break;
+  }
+  // Große Wasserschüsse
+  if(m.cd<=0){
+    const sx=m.x+m.f*12*m.scale, sy=gyA-17*m.scale; let best=null, bd=1e9;
+    const range = gs===S.SURFACE ? 760 : 2600;
+    const list = megaFoe && !megaFoe.dropping ? [megaFoe] : targets;
+    for(const t of list){ const w=t.w||40,h=t.h||40,tx2=t.x+w/2,ty2=t.y+h/2,d=Math.hypot(tx2-sx,ty2-sy);
+      if(d<bd && d<range){ bd=d; const tt=d/10; best={x:tx2+(t.vx||0)*tt,y:ty2+(t.vy||0)*tt}; } }
+    if(best || keys['KeyW']){
+      let vx=m.f*10, vy=0;
+      if(best){ const ddx=best.x-sx, ddy=best.y-sy, L=Math.hypot(ddx,ddy)||1; vx=ddx/L*10; vy=ddy/L*10; m.f=ddx<0?-1:1; }
+      pProjectiles.push({x:sx,y:sy,vx,vy,life:gs===S.SURFACE?90:200,r:5+m.scale*1.3,power:m.dmgShot,guard:true,mega:true});
+      m.cd=45; m.shootT=10; playFX(180,0.08,'triangle',0.08);
+    } else m.cd=10;
+  }
+  if(m.hp<=0) megaSplit(true);
+}
+
+// ── Mega-Endgegner ──
+function megaFoeTheme(){
+  if(gs===S.DIAMOND_BOSS) return { name:'MEGA-DIAMANTSAURIER', c1:'#5ff0ff', c2:'#1b8aa8', eye:'#ffffff', horn:'#e0ffff', crystal:true };
+  if(gs===S.GOLD_BOSS)    return { name:'MEGA-GOLDKOLOSS',     c1:'#ffd34d', c2:'#a8760a', eye:'#ff2020', horn:'#fff0a0' };
+  if(gs===S.RUBY_BOSS)    return { name:'MEGA-RUBINDRACHE',    c1:'#ff3355', c2:'#8a0f22', eye:'#ffd700', horn:'#ffd700', wings:true };
+  if(gs===S.SPLASH_BOSS)  return { name:'MEGA-EISRIESE',       c1:'#c8ecff', c2:'#4a8ac0', eye:'#1040ff', horn:'#ffffff', crystal:true };
+  return { name:'MEGA-MONSTER', c1:'#4fcf4f', c2:'#1d6b1d', eye:'#ff3030', horn:'#e8e0c0' };
+}
+function spawnMegaFoe(gyA){
+  const sc=mega.scale, D=megaDims(sc), w=D.w*1.1, h=D.h, th=megaFoeTheme();
+  const hc=hero.x+hero.w/2, x = hc < W/2 ? W-w-24 : 24;
+  megaFoe={ ...th, scale:sc, x, y:gyA-h, w, h, hp:0, maxHp:0,
+    f: x>hc?-1:1, punchCd:60, throwCd:120, hitT:0, punchT:0, walk:0, drop:-H, dropping:true, vx:0, vy:0 };
+  megaFoe.maxHp=megaFoe.hp=Math.round(Math.max(mega.maxHp*0.25, (mega.dmgShot+mega.melee*0.9)*30));
+  armyToast(`⚠️ Ein ${th.name} erscheint – genauso groß wie dein Mega-Wächter!`,'#ff9a9a');
+  playFX(70,0.8,'sawtooth',0.2); setTimeout(()=>playFX(55,0.6,'sawtooth',0.18),250);
+}
+function megaFoeHurtHero(){
+  const shield = keys['KeyS'] && !shieldBroken;
+  if(hero.invTimer>0 || shield) return;
+  takeDamage();
+}
+function updateMegaFoe(gyA){
+  if(!megaFoe) return;
+  const F=megaFoe;
+  F.y=gyA-F.h;
+  if(F.dropping){ F.drop+=Math.max(6,-F.drop*0.12); if(F.drop>=0){ F.drop=0; F.dropping=false; for(let j=0;j<30;j++) hitFX.push({x:F.x+F.w/2,y:gyA,vx:(Math.random()-.5)*12,vy:-Math.random()*5,life:35,color:'#b8a890'}); playFX(60,0.4,'sawtooth',0.2); } return; }
+  for(const k of ['punchCd','throwCd','hitT','punchT']) if(F[k]>0) F[k]--;
+  const fc=F.x+F.w/2, hc=hero.x+hero.w/2;
+  // Ziel: Mega-Wächter, sonst der Astronaut
+  let tl, tr;
+  if(mega){ const D=megaDims(mega.scale); tl=mega.x-D.w/2; tr=mega.x+D.w/2; }
+  else { tl=hero.x; tr=hero.x+hero.w; }
+  const tc=(tl+tr)/2; F.f = tc>fc?1:-1;
+  const gap = F.f>0 ? tl-(F.x+F.w) : F.x-tr;
+  if(gap>6){ const sp=0.7+F.scale*0.08; F.x+=F.f*sp; F.walk+=0.12; } else F.walk=0;
+  F.x=Math.max(10,Math.min(W-10-F.w,F.x));
+  // Faustschlag
+  if(gap<14 && F.punchCd<=0){
+    F.punchCd=55; F.punchT=16; playFX(95,0.15,'square',0.15);
+    if(mega){ mega.hp-=mega.maxHp*0.022*(1-mega.prot*0.5); mega.hitT=10; }
+    else megaFoeHurtHero();
+    for(const g of armyList()) if(g._x!==undefined && Math.abs(g._x-(F.f>0?F.x+F.w:F.x))<F.scale*10) guardHit(g,25);
+  }
+  // Riesenball werfen
+  if(F.throwCd<=0){
+    F.throwCd=150+Math.floor(Math.random()*60);
+    const sx=fc+F.f*F.w*0.4, sy=F.y+F.h*0.3, aimHero = !mega || Math.random()<0.6;
+    const tx2 = aimHero ? hc : mega.x, ty2 = aimHero ? hero.y+hero.h/2 : gyA-megaDims(mega.scale).h*0.5;
+    const L=Math.hypot(tx2-sx,ty2-sy)||1;
+    megaFoeShots.push({x:sx,y:sy,vx:(tx2-sx)/L*6,vy:(ty2-sy)/L*6,r:6+F.scale*1.2,col:F.c1});
+  }
+  // Treffer durch Wasser (Wachen, Mega-Wächter, Astronaut)
+  for(let k=pProjectiles.length-1;k>=0;k--){ const p=pProjectiles[k];
+    if(circRect(p.x,p.y,p.r||5,F.x,F.y,F.w,F.h)){ pProjectiles.splice(k,1); F.hp-=(p.power||1); F.hitT=6; } }
+  if(F.hp<=0){
+    for(let j=0;j<60;j++) hitFX.push({x:F.x+F.w/2,y:F.y+F.h/2,vx:(Math.random()-.5)*12,vy:-Math.random()*9,life:55,color:[F.c1,F.c2,'#fff','#ffd700'][j%4]});
+    diamonds+=10; megaFoeDone=true; megaFoe=null;
+    armyToast(`🏆 ${F.name} besiegt! +10 💎`,'#9f9');
+    [523,659,784,1047].forEach((f,i)=>setTimeout(()=>playFX(f,0.2,'square',0.13),i*110));
+  }
+}
+function updateMegaFoeShots(gyA){
+  if(!megaFoeShots.length) return;
+  const D = mega ? megaDims(mega.scale) : null;
+  megaFoeShots = megaFoeShots.filter(s=>{
+    s.x+=s.vx; s.y+=s.vy; s.vy+=0.04;
+    if(circRect(s.x,s.y,s.r,hero.x,hero.y,hero.w,hero.h)){ megaFoeHurtHero(); return false; }
+    if(mega && circRect(s.x,s.y,s.r,mega.x-D.w/2,gyA-D.h,D.w,D.h)){ mega.hp-=mega.maxHp*0.03*(1-mega.prot); mega.hitT=10; return false; }
+    for(const g of armyList()){ if(g._x===undefined) continue; const fy=gyA-(g._row||0)*10;
+      if(circRect(s.x,s.y,s.r,g._x-8,fy-34,16,34)){ guardHit(g,20); return false; } }
+    return s.x>-60 && s.x<W+60 && s.y<H+60;
+  });
+}
+
+// ── Zeichnen ──
+function drawArmy(){
+  const gyA = gs===S.SURFACE ? groundY() : (armyGY!==null?armyGY:hero.y+hero.h);
+  const list=armyList();
+  for(let i=list.length-1;i>=0;i--){
+    const g=list[i]; if(g._x===undefined) continue;
     const fy=gyA-(g._row||0)*10;
     drawGuardFig(g._x, fy, g._f||1, {mode:'march', armor:gearOf(GUARD_ARMORS,g.armor), cannon:g.cannon, weapon:g.weapon,
       walk:g._walk, shoot:g._shootT>0, swingT:g._swingT, hitT:g._hitT, blockT:g._blockT, idle:i*0.7});
     if(g.hp<GUARD_HP || g.sh<100) drawGuardBars(g._x, fy-48, g);
   }
-  const lead=guards[0];
-  ctx.fillStyle='rgba(255,215,0,0.9)'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
-  ctx.fillText(`🛡️ ${guards.length}`, lead._x, gyA-54);
+  if(list.length && list[0]._x!==undefined){
+    ctx.fillStyle='rgba(255,215,0,0.9)'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
+    ctx.fillText(`🛡️ ${list.length}`, list[0]._x, gyA-54);
+  }
+  drawMegaFoe(gyA);
+  drawMega(gyA);
+  megaFoeShots.forEach(s=>{
+    ctx.fillStyle=s.col; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.arc(s.x-s.r*0.3,s.y-s.r*0.3,s.r*0.3,0,Math.PI*2); ctx.fill();
+  });
+}
+function drawMega(gyA){
+  if(megaAnim){
+    const a=megaAnim, p=Math.min(1,a.t/a.dur), e=p*p*(3-2*p);
+    const glowR=10+e*80;
+    const gl=ctx.createRadialGradient(a.cx,gyA-60*e,0,a.cx,gyA-60*e,glowR); gl.addColorStop(0,'rgba(255,255,220,0.9)'); gl.addColorStop(1,'rgba(120,220,255,0)');
+    ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(a.cx,gyA-60*e,glowR,0,Math.PI*2); ctx.fill();
+    a.members.forEach((g,i)=>{
+      const x=g._fx+(a.cx-g._fx)*e, y=gyA-(g._fy||0)-Math.sin(e*Math.PI)*70 - e*40;
+      if(e<0.95) drawGuardFig(x, y, g._f||1, {mode:'march', armor:gearOf(GUARD_ARMORS,g.armor), cannon:g.cannon, weapon:g.weapon, scale:1-e*0.6, idle:i});
+    });
+    if(frame%3===0) hitFX.push({x:a.cx+(Math.random()-.5)*60,y:gyA-60*e,vx:(Math.random()-.5)*3,vy:-Math.random()*3,life:25,color:['#ffd700','#9ff','#fff'][frame%3]});
+    ctx.fillStyle='#fff'; ctx.font='bold 16px Courier New'; ctx.textAlign='center'; ctx.fillText('🤖 VERWANDLUNG …', a.cx, gyA-150);
+    return;
+  }
+  if(!mega) return;
+  const m=mega, D=megaDims(m.scale);
+  if(m.flash>0){ ctx.fillStyle=`rgba(255,255,255,${m.flash/25*0.6})`; ctx.beginPath(); ctx.arc(m.x,gyA-D.h/2,D.h*0.8,0,Math.PI*2); ctx.fill(); }
+  ctx.save(); ctx.shadowColor='rgba(120,220,255,0.9)'; ctx.shadowBlur=12;
+  drawGuardFig(m.x, gyA, m.f, {mode:'march', armor:gearOf(GUARD_ARMORS,m.armor), cannon:m.cannon, weapon:m.weapon,
+    scale:m.scale, walk:m.walk, shoot:m.shootT>0, swingT:m.swingT, hitT:m.hitT, idle:0});
+  ctx.restore();
+  const bw=Math.max(60,D.w*1.6), by=gyA-D.h-22;
+  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(m.x-bw/2-2,by-2,bw+4,10);
+  ctx.fillStyle=m.hp/m.maxHp>0.5?'#4f4':m.hp/m.maxHp>0.25?'#fc3':'#f44'; ctx.fillRect(m.x-bw/2,by,bw*Math.max(0,m.hp)/m.maxHp,6);
+  ctx.fillStyle='#9ff'; ctx.font='bold 11px Courier New'; ctx.textAlign='center';
+  ctx.fillText(`🤖 MEGA-WÄCHTER (${m.n})  ❤ ${Math.max(0,Math.round(m.hp))}`, m.x, by-5);
+}
+function drawMegaFoe(gyA){
+  if(!megaFoe) return;
+  const F=megaFoe, cx=F.x+F.w/2, base=gyA+(F.drop||0);
+  ctx.save(); ctx.translate(cx, base); ctx.scale(F.scale*F.f, F.scale);
+  const step=F.walk?Math.sin(F.walk*3)*2:0, punch=F.punchT>0?Math.sin((16-F.punchT)/16*Math.PI):0;
+  const body=ctx.createLinearGradient(-10,-36,10,-12); body.addColorStop(0,F.c1); body.addColorStop(1,F.c2);
+  ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,0,13,2.6,0,0,Math.PI*2); ctx.fill();
+  if(F.wings){ ctx.fillStyle=F.c2; ctx.beginPath(); ctx.moveTo(-6,-32); ctx.lineTo(-22,-46); ctx.lineTo(-18,-30); ctx.lineTo(-24,-24); ctx.lineTo(-6,-22); ctx.closePath(); ctx.fill(); }
+  // Beine
+  ctx.fillStyle=F.c2; ctx.fillRect(-8+step,-14,6,13); ctx.fillRect(2-step,-14,6,13);
+  ctx.fillStyle='#222'; ctx.fillRect(-9+step,-3,8,3); ctx.fillRect(1-step,-3,8,3);
+  // hinterer Arm
+  ctx.fillStyle=F.c2; ctx.fillRect(-13,-33,5,15);
+  // Körper
+  ctx.fillStyle=body; ctx.beginPath(); ctx.roundRect(-10,-36,20,23,5); ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.roundRect(-6,-30,12,12,3); ctx.fill();
+  if(F.crystal){ ctx.fillStyle=F.horn; for(const [x,y] of [[-9,-36],[-3,-38],[4,-37]]){ ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+2.5,y-6); ctx.lineTo(x+5,y); ctx.closePath(); ctx.fill(); } }
+  // vorderer Arm mit Faustschlag
+  ctx.fillStyle=F.c1; ctx.fillRect(7,-33,5+punch*9,5);
+  ctx.fillStyle=F.c2; ctx.beginPath(); ctx.arc(13+punch*9,-30.5,3.6,0,Math.PI*2); ctx.fill();
+  // Kopf
+  ctx.fillStyle=F.c1; ctx.beginPath(); ctx.roundRect(-7,-48,15,13,4); ctx.fill();
+  ctx.fillStyle=F.horn; ctx.beginPath(); ctx.moveTo(-6,-47); ctx.lineTo(-9,-55); ctx.lineTo(-2,-48); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(4,-48); ctx.lineTo(8,-55); ctx.lineTo(7,-46); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=F.eye; ctx.shadowColor=F.eye; ctx.shadowBlur=6;
+  ctx.beginPath(); ctx.arc(0,-43,1.6,0,Math.PI*2); ctx.arc(5,-43,1.6,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+  ctx.strokeStyle='#111'; ctx.lineWidth=0.9; ctx.beginPath(); ctx.moveTo(-1.5,-45.5); ctx.lineTo(1.5,-44.5); ctx.moveTo(3.5,-44.5); ctx.lineTo(6.5,-45.5); ctx.stroke();
+  ctx.fillStyle='#fff'; for(let i=0;i<4;i++){ ctx.beginPath(); ctx.moveTo(-1+i*2,-38.5); ctx.lineTo(0+i*2,-36.6); ctx.lineTo(1+i*2,-38.5); ctx.closePath(); ctx.fill(); }
+  if(F.hitT>0){ ctx.globalCompositeOperation='source-atop'; ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.fillRect(-30,-60,60,62); }
+  ctx.restore();
+  if(!F.dropping){
+    const bw=Math.max(80,F.w*1.4), by=F.y-22;
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(cx-bw/2-2,by-2,bw+4,10);
+    ctx.fillStyle='#f44'; ctx.fillRect(cx-bw/2,by,bw*Math.max(0,F.hp)/F.maxHp,6);
+    ctx.fillStyle='#ffb0b0'; ctx.font='bold 11px Courier New'; ctx.textAlign='center';
+    ctx.fillText(`👹 ${F.name}  ❤ ${Math.max(0,Math.round(F.hp))}`, cx, by-5);
+  }
+}
+// Knopf zum Verwandeln (Bildschirm oben rechts)
+function drawMegaButton(){
+  megaBtn=null;
+  if(!megaAllowedState() || dialog) return;
+  const n=armyList().length;
+  if(!mega && !megaAnim && n<MEGA_MIN) return;
+  const w=170, h=40, x=W-w-14, y=96;
+  ctx.save();
+  ctx.fillStyle = mega ? 'rgba(130,40,40,0.9)' : megaCool>0 ? 'rgba(70,70,80,0.85)' : 'rgba(20,90,160,0.92)';
+  ctx.beginPath(); ctx.roundRect(x,y,w,h,12); ctx.fill();
+  ctx.strokeStyle='#9ff'; ctx.lineWidth=2; ctx.beginPath(); ctx.roundRect(x,y,w,h,12); ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.font='bold 14px Courier New'; ctx.textAlign='center';
+  ctx.fillText(megaAnim ? '🤖 Verwandlung…' : mega ? '🤖 Trennen (M)' : megaCool>0 ? `🤖 Pause ${Math.ceil(megaCool/60)} s` : `🤖 MEGA (M)  ${n}`, x+w/2, y+25);
+  ctx.restore();
+  megaBtn={x,y,w,h};
+}
+function handleMegaTap(sx,sy){
+  if(!megaBtn) return false;
+  if(sx>=megaBtn.x && sx<=megaBtn.x+megaBtn.w && sy>=megaBtn.y && sy<=megaBtn.y+megaBtn.h){ megaToggle(); return true; }
+  return false;
+}
+
+// ═══ ARMEE-TAFEL im Schloss ═══
+let armyUiOpen=false, armyCur=0, armyScroll=0, armyUiHits=[], armyUiMsg='';
+const ARMY_COLS=12, ARMY_ROWS=4;
+function armyTakeBest(n){
+  const sorted=[...guards].sort((a,b)=>b.lvl-a.lvl || b.hp-a.hp);
+  const take=new Set(sorted.slice(0,Math.min(n,DEPLOY_MAX)).map(g=>g.id));
+  guards.forEach(g=>{ g.dep=take.has(g.id); });
+  armyUiMsg = n===0 ? '🏰 Alle Wachen bleiben im Schloss.' : `⚔️ ${take.size} Wachen (die stärksten) kommen mit.`;
+  playFX(660,0.1,'sine',0.1);
+}
+function armyToggle(i){
+  const g=guards[i]; if(!g) return;
+  if(!g.dep && deployedCount()>=DEPLOY_MAX){ armyUiMsg=`Höchstens ${DEPLOY_MAX} Wachen können gleichzeitig mitkommen.`; playFX(200,0.1,'square',0.08); return; }
+  g.dep=!g.dep; armyUiMsg = g.dep ? `✓ Wache #${g.id} (Lv ${g.lvl}) kommt mit.` : `🏰 Wache #${g.id} bleibt im Schloss.`;
+  playFX(g.dep?700:420,0.06,'sine',0.08);
+}
+function armyEnsureVisible(){
+  const row=Math.floor(armyCur/ARMY_COLS);
+  if(row<armyScroll) armyScroll=row;
+  if(row>=armyScroll+ARMY_ROWS) armyScroll=row-ARMY_ROWS+1;
+}
+function armyMaxScroll(){ return Math.max(0, Math.ceil(guards.length/ARMY_COLS)-ARMY_ROWS); }
+function handleArmyUiKey(code){
+  const n=guards.length;
+  if(code==='Escape'){ armyUiOpen=false; return; }
+  if(n){
+    if(code==='ArrowLeft')  armyCur=(armyCur-1+n)%n;
+    if(code==='ArrowRight') armyCur=(armyCur+1)%n;
+    if(code==='ArrowUp')    armyCur=Math.max(0,armyCur-ARMY_COLS);
+    if(code==='ArrowDown')  armyCur=Math.min(n-1,armyCur+ARMY_COLS);
+    if(code==='Enter'||code==='Space') armyToggle(armyCur);
+    armyEnsureVisible();
+  }
+  const quick={Digit0:0,Numpad0:0,Digit1:10,Numpad1:10,Digit2:20,Numpad2:20,Digit5:50,Numpad5:50,Digit9:100,Numpad9:100,KeyA:DEPLOY_MAX};
+  if(code in quick) armyTakeBest(quick[code]);
+  if(code==='PageDown') armyScroll=Math.min(armyMaxScroll(),armyScroll+1);
+  if(code==='PageUp') armyScroll=Math.max(0,armyScroll-1);
+}
+function renderArmyUi(){
+  const PW=920, PH=600, PX=W/2-PW/2, PY=H/2-PH/2;
+  uiBegin('armyui', uiFitK(PW+20, PH+20), W/2, H/2);
+  armyUiHits=[];
+  ctx.fillStyle='rgba(16,22,34,0.97)'; ctx.beginPath(); ctx.roundRect(PX,PY,PW,PH,16); ctx.fill();
+  ctx.strokeStyle='#ffd34d'; ctx.lineWidth=3; ctx.beginPath(); ctx.roundRect(PX,PY,PW,PH,16); ctx.stroke();
+  ctx.textAlign='center'; ctx.fillStyle='#ffd34d'; ctx.font='bold 22px Courier New'; ctx.fillText('📋 ARMEE ZUSAMMENSTELLEN', W/2, PY+34);
+  const dep=deployedCount();
+  ctx.fillStyle='#fff'; ctx.font='bold 15px Courier New';
+  ctx.fillText(`🏰 Im Schloss: ${guards.length-dep}   ·   ⚔️ Kommen mit: ${dep} / ${DEPLOY_MAX}   ·   🤖 Mega-Wächter ab ${MEGA_MIN}`, W/2, PY+62);
+  // Schnellwahl
+  const qs=[['Keine',0],['10',10],['20',20],['50',50],['100',100],['Alle',DEPLOY_MAX]];
+  const qw=110, qx0=W/2-(qs.length*qw+(qs.length-1)*10)/2;
+  ctx.fillStyle='#ccd'; ctx.font='12px Courier New'; ctx.fillText('Schnellwahl – nimmt die stärksten Wachen mit:', W/2, PY+86);
+  qs.forEach(([t,n],i)=>{ const b={x:qx0+i*(qw+10),y:PY+94,w:qw,h:34};
+    ctx.fillStyle= n===0?'rgba(120,40,40,0.95)':'rgba(30,90,160,0.95)'; ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,9); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 15px Courier New'; ctx.fillText(t, b.x+b.w/2, b.y+23); armyUiHits.push({...b,id:'quick',n}); });
+  // Raster
+  const tw=66, th=80, gx=PX+(PW-ARMY_COLS*(tw+4))/2-18, gy=PY+144;
+  if(!guards.length){ ctx.fillStyle='#fff'; ctx.font='bold 15px Courier New'; ctx.fillText('Noch keine Wachen – wirb beim Hauptmann welche an!', W/2, gy+120); }
+  armyScroll=Math.max(0,Math.min(armyMaxScroll(),armyScroll));
+  for(let r=0;r<ARMY_ROWS;r++) for(let c=0;c<ARMY_COLS;c++){
+    const i=(armyScroll+r)*ARMY_COLS+c, g=guards[i]; if(!g) continue;
+    const x=gx+c*(tw+4), y=gy+r*(th+4);
+    ctx.fillStyle = g.dep ? 'rgba(40,130,60,0.9)' : 'rgba(60,60,72,0.85)';
+    ctx.beginPath(); ctx.roundRect(x,y,tw,th,8); ctx.fill();
+    if(i===armyCur){ ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.roundRect(x,y,tw,th,8); ctx.stroke(); }
+    drawGuardFig(x+tw/2, y+th-14, 1, {mode:'march', armor:gearOf(GUARD_ARMORS,g.armor), cannon:g.cannon, weapon:g.weapon, scale:1.15, idle:i});
+    ctx.fillStyle='#fff'; ctx.font='bold 10px Courier New'; ctx.textAlign='left'; ctx.fillText(`#${g.id}`, x+4, y+12);
+    ctx.textAlign='right'; ctx.fillStyle='#ffe680'; ctx.fillText(`Lv${g.lvl}`, x+tw-4, y+12);
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(x+5,y+th-9,tw-10,4);
+    ctx.fillStyle=g.hp>50?'#4f4':g.hp>25?'#fc3':'#f44'; ctx.fillRect(x+5,y+th-9,(tw-10)*g.hp/GUARD_HP,4);
+    if(g.dep){ ctx.fillStyle='#bfffbf'; ctx.font='bold 14px Arial'; ctx.textAlign='right'; ctx.fillText('✓', x+tw-4, y+28); }
+    armyUiHits.push({x,y,w:tw,h:th,id:'guard',i});
+  }
+  // Blättern
+  const sx=gx+ARMY_COLS*(tw+4)+8, up={x:sx,y:gy,w:40,h:70}, dn={x:sx,y:gy+ARMY_ROWS*(th+4)-74,w:40,h:70};
+  for(const [b,t,id] of [[up,'▲','up'],[dn,'▼','down']]){
+    ctx.fillStyle='rgba(120,90,30,0.9)'; ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,9); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 18px Arial'; ctx.textAlign='center'; ctx.fillText(t,b.x+b.w/2,b.y+42); armyUiHits.push({...b,id}); }
+  const pages=Math.ceil(guards.length/ARMY_COLS);
+  if(pages>ARMY_ROWS){ ctx.fillStyle='#aab'; ctx.font='11px Courier New'; ctx.fillText(`${armyScroll+1}–${Math.min(pages,armyScroll+ARMY_ROWS)}/${pages}`, sx+20, gy+ARMY_ROWS*(th+4)/2+4); }
+  // Fußzeile
+  ctx.textAlign='center';
+  if(armyUiMsg){ ctx.fillStyle='#bfffbf'; ctx.font='bold 13px Courier New'; ctx.fillText(armyUiMsg, W/2, PY+PH-74); }
+  ctx.fillStyle='#9ff'; ctx.font='12px Courier New';
+  ctx.fillText(`🤖 Draußen und im Bosskampf: Taste M oder Knopf „MEGA“ – die mitgenommenen Wachen werden zum Mega-Wächter.`, W/2, PY+PH-54);
+  const cb={x:W/2-110,y:PY+PH-44,w:220,h:32};
+  ctx.fillStyle='rgba(130,30,30,0.95)'; ctx.beginPath(); ctx.roundRect(cb.x,cb.y,cb.w,cb.h,9); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New'; ctx.fillText('ESC: Fertig', W/2, cb.y+21); armyUiHits.push({...cb,id:'close'});
+  ctx.fillStyle='#889'; ctx.font='11px Courier New'; ctx.fillText('Pfeile: Wache wählen · ENTER: mitnehmen/dalassen · 0/1/2/5/9/A: Schnellwahl', W/2, PY+PH-4);
+  uiEnd();
+}
+function handleArmyUiTap(sx,sy){
+  const q=uiInv('armyui',sx,sy), h=armyUiHits.find(b=>q.x>=b.x&&q.x<=b.x+b.w&&q.y>=b.y&&q.y<=b.y+b.h);
+  if(!h) return;
+  if(h.id==='close') armyUiOpen=false;
+  else if(h.id==='quick') armyTakeBest(h.n);
+  else if(h.id==='guard'){ armyCur=h.i; armyToggle(h.i); }
+  else if(h.id==='up') armyScroll=Math.max(0,armyScroll-1);
+  else if(h.id==='down') armyScroll=Math.min(armyMaxScroll(),armyScroll+1);
 }
 
 function openGuardShop(){
   if(guards.length>=GUARD_MAX){
-    dialog={msg:`🏰 Deine Armee ist voll!\n${GUARD_MAX} Wachen begleiten dich schon.`,yLabel:'OK',nLabel:null,onY:()=>{dialog=null;},onN:null};
+    dialog={msg:`🏰 Das Schloss ist voll!\n${GUARD_MAX} Wachen wohnen schon hier.`,yLabel:'OK',nLabel:null,onY:()=>{dialog=null;},onN:null};
   } else if(diamonds<GUARD_PRICE){
     dialog={msg:`🏰 Zu wenig Diamanten!\n${GUARD_PACK} Wachen kosten ${GUARD_PRICE} 💎\n(du hast ${diamonds} 💎)`,yLabel:'OK',nLabel:null,onY:()=>{dialog=null;},onN:null};
   } else {
@@ -4777,7 +5177,7 @@ function castleFloorY(){ return castleVH()-34; }
 function castleSpots(){
   const VW=castleVW();
   return castleFloor===0
-    ? { door:46, desk:VW*0.25, cab:VW*0.53, stair:VW-62 }
+    ? { door:46, desk:VW*0.25, cab:VW*0.53, table:VW*0.79, stair:VW-62 }
     : { stair:VW-62 };
 }
 function castleNear(){
@@ -4785,18 +5185,20 @@ function castleNear(){
   if(sp.door!==undefined && Math.abs(c-sp.door)<28) return 'door';
   if(sp.desk!==undefined && Math.abs(c-sp.desk)<34) return 'desk';
   if(sp.cab!==undefined && Math.abs(c-sp.cab)<62) return 'cab';
+  if(sp.table!==undefined && Math.abs(c-sp.table)<26) return 'table';
   if(Math.abs(c-sp.stair)<34) return 'stair';
   return null;
 }
 function enterCastleInside(){
-  gs=S.CASTLE; castleFloor=0; armoryOpen=false; castleFade=20;
+  if(mega||megaAnim) megaSplit(false,true);
+  gs=S.CASTLE; castleFloor=0; armoryOpen=false; armyUiOpen=false; castleFade=20;
   hero.x=70; hero.vx=0; hero.vy=0; hero.facing=1; hero.onGround=true; hero.y=castleFloorY()-hero.h;
   clearJust();
   playFX(392,0.15,'sine',0.12); setTimeout(()=>playFX(523,0.2,'sine',0.12),120);
   if(guards.some(g=>g.hp<GUARD_HP||g.sh<100)) armyToast('🏰 Im Schloss erholen sich deine Wachen.','#9f9');
 }
 function leaveCastle(){
-  gs=S.SURFACE; armoryOpen=false; castleFloor=0;
+  gs=S.SURFACE; armoryOpen=false; armyUiOpen=false; castleFloor=0;
   hero.x=EARTH_CASTLE_X-hero.w/2; hero.y=groundY()-hero.h; hero.vx=0; hero.vy=0; hero.onGround=true;
   camX=Math.max(0,Math.min(WORLD_W-W, hero.x+hero.w/2-W/2));
   interactCooldown=30; castleGreetT=40; clearJust();
@@ -4809,6 +5211,7 @@ function castleAct(what){
   if(what==='door') leaveCastle();
   else if(what==='desk') openGuardShop();
   else if(what==='cab'){ armoryOpen=true; armoryMsg=''; armoryGi=Math.min(armoryGi,Math.max(0,guards.length-1)); }
+  else if(what==='table'){ armyUiOpen=true; armyUiMsg=''; armyCur=Math.min(armyCur,Math.max(0,guards.length-1)); armyEnsureVisible(); }
   else if(what==='stair') castleGoFloor(castleFloor?0:1);
 }
 function updateCastle(){
@@ -4817,7 +5220,7 @@ function updateCastle(){
   if(castleFade>0) castleFade--;
   castlePops=castlePops.filter(p=>{ p.y-=0.35; return --p.life>0; });
   if(castleFloor===1) trainGuards();
-  if(armoryOpen || dialog) return;
+  if(armoryOpen || armyUiOpen || dialog) return;
   hero.vx=0;
   if(keys['ArrowLeft'])  { hero.vx=-2.4; hero.facing=-1; }
   if(keys['ArrowRight']) { hero.vx= 2.4; hero.facing= 1; }
@@ -4829,6 +5232,7 @@ function updateCastle(){
     if(near==='door' && (justDown['Enter']||justDown['ArrowUp'])) return castleAct('door');
     if(near==='desk' && justDown['Enter']) return castleAct('desk');
     if(near==='cab' && justDown['Enter']) return castleAct('cab');
+    if(near==='table' && justDown['Enter']) return castleAct('table');
     if(near==='stair' && (justDown['Enter']||justDown['ArrowDown'])) return castleAct('stair');
   } else {
     if(near==='stair' && (justDown['Enter']||justDown['ArrowUp'])) return castleAct('stair');
@@ -4868,7 +5272,7 @@ function drawCastleInside(){
   // Hinweis über dem nahen Objekt
   const near=castleNear(), sp=castleSpots();
   const tip = castleFloor===0
-    ? { door:'ENTER / ↑: Hinausgehen', desk:'ENTER: Wachen anwerben (100 💎)', cab:'ENTER: Waffenschrank öffnen', stair:'↓ / ENTER: Zum Trainingsraum' }
+    ? { door:'ENTER / ↑: Hinausgehen', desk:'ENTER: Wachen anwerben (100 💎)', cab:'ENTER: Waffenschrank öffnen', table:'ENTER: Armee zusammenstellen', stair:'↓ / ENTER: Zum Trainingsraum' }
     : { stair:'↑ / ENTER: Zurück in die Halle' };
   if(near && tip[near]){
     const x=Math.max(70,Math.min(VW-70,sp[near])), y=fy-118;
@@ -4884,9 +5288,10 @@ function drawCastleInside(){
   // Kopfzeile
   ctx.fillStyle='rgba(20,10,5,0.75)'; ctx.fillRect(0,H-26,W,26);
   ctx.fillStyle='#ffe6a0'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
-  ctx.fillText(castleFloor===0 ? `🏰 Schlosshalle  |  🛡️ Wachen: ${guards.length}/${GUARD_MAX}  |  ← → Laufen  |  ENTER Benutzen  |  ESC Hinaus`
+  ctx.fillText(castleFloor===0 ? `🏰 Schlosshalle  |  🛡️ Wachen: ${guards.length}/${GUARD_MAX} (dabei ${deployedCount()})  |  ← → Laufen  |  ENTER Benutzen  |  ESC Hinaus`
                                : `🏋️ Trainingsraum  |  Wachen trainieren automatisch, solange du zusiehst  |  ↑ Treppe  |  ESC Zurück`, W/2, H-8);
   if(armoryOpen) renderArmory();
+  if(armyUiOpen) renderArmyUi();
 }
 function drawTorch(x,y){
   ctx.fillStyle='#5b3a1e'; ctx.fillRect(x-1.5,y,3,10);
@@ -4931,6 +5336,14 @@ function drawCastleHall(VW,VH,fy){
   ctx.fillStyle='#f4e4c0'; ctx.fillRect(sp.desk-18,fy-26,14,4); ctx.fillStyle='#ffd700'; ctx.font='7px serif'; ctx.fillText('💎', sp.desk+2, fy-24);
   ctx.fillStyle='#ffe6a0'; ctx.font='bold 7px monospace'; ctx.fillText('⚔️ HAUPTMANN – Wachen anwerben', sp.desk, fy-62);
   drawArmoryCabinet(sp.cab, fy);
+  // Armee-Tafel (Kartentisch)
+  { const tx=sp.table;
+    ctx.fillStyle='#6b4423'; ctx.fillRect(tx-24,fy-26,48,5); ctx.fillRect(tx-21,fy-21,3,21); ctx.fillRect(tx+18,fy-21,3,21);
+    ctx.fillStyle='#e8d6a8'; ctx.fillRect(tx-20,fy-30,40,5);
+    ctx.fillStyle='#4a8a3a'; ctx.fillRect(tx-14,fy-29,9,3); ctx.fillStyle='#3a6ab0'; ctx.fillRect(tx+2,fy-29,10,3);
+    for(let i=0;i<5;i++){ ctx.fillStyle=i%2?'#ffd34d':'#d6202c'; ctx.fillRect(tx-16+i*7,fy-34,2.5,4); }
+    ctx.fillStyle='#ffe6a0'; ctx.font='bold 7px monospace'; ctx.textAlign='center'; ctx.fillText('📋 ARMEE-TAFEL', tx, fy-44);
+    ctx.fillStyle='#bfe'; ctx.fillText(`${deployedCount()} dabei`, tx, fy-36-0); }
   // Treppe nach unten
   const sx=sp.stair;
   ctx.fillStyle='#1a1410'; ctx.fillRect(sx-30,fy,60,VH-fy);
@@ -5107,6 +5520,7 @@ function renderArmory(){
 // Tippen/Klicken im Schloss
 function handleCastleTap(sx,sy){
   if(gs!==S.CASTLE || dialog) return false;
+  if(armyUiOpen){ handleArmyUiTap(sx,sy); return true; }
   if(armoryOpen){
     const q=uiInv('armory',sx,sy), h=armoryHits.find(b=>q.x>=b.x&&q.x<=b.x+b.w&&q.y>=b.y&&q.y<=b.y+b.h);
     if(!h) return true;
@@ -5119,7 +5533,7 @@ function handleCastleTap(sx,sy){
   }
   const K=castleK(), vx=sx/K, vy=sy/K, fy=castleFloorY(), sp=castleSpots();
   if(vy<fy-130 || vy>castleVH()) return false;
-  const hitObj = Object.entries({door:24, desk:34, cab:70, stair:36}).find(([k,r])=>sp[k]!==undefined && Math.abs(vx-sp[k])<r);
+  const hitObj = Object.entries({door:24, desk:34, cab:66, table:26, stair:36}).find(([k,r])=>sp[k]!==undefined && Math.abs(vx-sp[k])<r);
   if(hitObj){ hero.x=sp[hitObj[0]]-hero.w/2; castleAct(hitObj[0]); return true; }
   return false;
 }
@@ -5854,7 +6268,7 @@ function drawVirtualButtons() {
   const visible = new Set();
   if (inLaunch)  { visible.add('tLeft'); visible.add('tRight'); visible.add('tUp'); visible.add('tBoard'); }
   if (inSpace)   { visible.add('tLeft'); visible.add('tRight'); visible.add('tUp'); }
-  if (gs===S.CASTLE && !armoryOpen) { visible.add('tLeft'); visible.add('tRight'); }
+  if (gs===S.CASTLE && !armoryOpen && !armyUiOpen) { visible.add('tLeft'); visible.add('tRight'); }
   if (inSurface||inBoss) {
     visible.add('tLeft'); visible.add('tRight'); visible.add('tJump');
     visible.add('tShoot'); visible.add('tShield');
@@ -6079,6 +6493,7 @@ function drawDiamondHUD(){ /* jetzt in drawHUD (Zeile 2) */ }
 //  DIAMOND BOSS FIGHT
 // ═══════════════════════════════════════════════════════════════════
 function startDiamondBoss(){
+  bossFightNo++;
   gs=S.DIAMOND_BOSS;
   // Freischaltung der Fächer verbraucht: nächstes Mal müssen alle Fächer neu beantwortet werden
   subjectQuestsDone={}; diamondPlanetBossUnlocked=false;
@@ -6419,6 +6834,7 @@ function renderFinalExam(){
 //  GOLD BOSS (Ultimate Endgegner)
 // ═══════════════════════════════════════════════════════════════════
 function startGoldBoss(){
+  bossFightNo++;
   gs=S.GOLD_BOSS;
   const gb=goldBossData;
   const t=beginBossTier('gold');
@@ -8201,6 +8617,7 @@ function wrapText(text, maxW){
 //  EISDRACHE BOSS — Ice Dragon + Ice Birds
 // ═══════════════════════════════════════════════════════════════════
 function startSplashBoss(){
+  bossFightNo++;
   gs = S.SPLASH_BOSS;
   splashBossAsked = false;
   // Reset hero: ensure alive, 3 hearts (keep current), position bottom-center
@@ -9856,6 +10273,7 @@ canvas.addEventListener('click', e=>{
     return;
   }
   { const r=canvas.getBoundingClientRect(); const sx=(e.clientX-r.left)*(W/r.width), sy=(e.clientY-r.top)*(H/r.height);
+    if(handleMegaTap(sx,sy)) return;
     if(handleCastleTap(sx,sy)) return;
     if(!dialog && (handleExchangeTap(sx,sy)||handleBrewTap(sx,sy)||handleNurseryTap(sx,sy)||handleForestTap(sx,sy)||handlePotionTap(sx,sy))) return;
     if(handleMissileTap(sx,sy)) return; }
@@ -10940,7 +11358,7 @@ function updateTouchUI() {
   const inSpace   = gs === S.SPACE;
   const inSurface = gs === S.SURFACE;
   const inBoss    = gs === S.BOSS;
-  const inCastleS = gs === S.CASTLE && !armoryOpen;
+  const inCastleS = gs === S.CASTLE && !armoryOpen && !armyUiOpen;
   const anyGame   = inLaunch || inSpace || inSurface || inBoss || inCastleS;
 
   document.getElementById('touchUI').classList.toggle('active', anyGame);
@@ -11100,6 +11518,7 @@ function handleGameAreaTap(x, y) {
 
   // 💾 Save-Button oben links
   if ((gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog && (()=>{const b=getSaveButtonRect(); return cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h;})()) { openSaveMenu(); return; }
+  if (handleMegaTap(cx, cy)) return;
   if (handleCastleTap(cx, cy)) return;
   if (!dialog && (handleExchangeTap(cx, cy)||handleBrewTap(cx, cy)||handleNurseryTap(cx, cy)||handleForestTap(cx, cy)||handlePotionTap(cx, cy))) return;
   // Eis-Lenkrakete button in boss fights
