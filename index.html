@@ -607,6 +607,8 @@ window.addEventListener('keydown', e => {
       return;
     }
   }
+  // Waffenschrank im Schloss
+  if(gs===S.CASTLE && armoryOpen && !dialog){ e.preventDefault(); delete justDown[e.code]; handleArmoryKey(e.code); return; }
   // Math quiz input
   if(mathQuiz){ e.preventDefault(); handleMathKey(e.code, e.key); }
   // Diamond planet quest input (answer handling)
@@ -723,7 +725,7 @@ const S = { MENU:'menu', LAUNCH:'launch', SPACE:'space', APPROACHING:'approachin
             SURFACE:'surface', BOSS:'boss', BOSSWIN:'bosswin', GAMEOVER:'gameover',
             BOARD:'board', ADMIN_CONFIRM:'adminConfirm', SAVEMENU:'savemenu', LOADMENU:'loadmenu',
             FINAL_EXAM:'finalexam', GOLD_BOSS:'goldboss', TROPHY:'trophy', DIAMOND_BOSS:'diamondboss',
-            RUBY_GATE:'rubygate', RUBY_BOSS:'rubyboss',
+            RUBY_GATE:'rubygate', RUBY_BOSS:'rubyboss', CASTLE:'castle',
             MODE_SELECT:'modeselect', SAGA_NEW_LOAD:'saganewordload',
             CUTSCENE:'cutscene', SPLASH_GAME:'splashgame',
             SPLASH_GATE:'splashgate', SPLASH_BOSS:'splashboss' };
@@ -1177,7 +1179,7 @@ function saveGame(slotName) {
   const entry = {
     name:         slotName.trim() || 'Spielstand',
     date:         new Date().toLocaleString('de-DE'),
-    level, lives, crowns, diamonds, rubies, splashStars, iceMissiles, ingredients:{...ingredients}, potions:{...potions}, goldRockets, saplings, armorsOwned:[...armorsOwned], armorEquipped, guardCount, forestTrees: forestTrees.map(t=>({...t})), goldLevel, goldModeOn, bossWins:{...bossWins}, iceMultiLevel, backpackLevel, jetpackLevel,
+    level, lives, crowns, diamonds, rubies, splashStars, iceMissiles, ingredients:{...ingredients}, potions:{...potions}, goldRockets, saplings, armorsOwned:[...armorsOwned], armorEquipped, guards: guards.map(saveGuard), guardSerial, forestTrees: forestTrees.map(t=>({...t})), goldLevel, goldModeOn, bossWins:{...bossWins}, iceMultiLevel, backpackLevel, jetpackLevel,
     gameMode, sagaChapter, sagaUnlocked: {...sagaUnlocked},
     splashPlanetUnlocked,
     currentPlanet,
@@ -1216,7 +1218,7 @@ function loadGame(entry) {
   goldRockets           = entry.goldRockets ?? false;
   saplings              = entry.saplings ?? 0;
   armorsOwned           = Array.isArray(entry.armorsOwned) ? [...entry.armorsOwned] : [];
-  guardCount            = Math.min(GUARD_MAX, +entry.guardCount||0); army=[];
+  loadGuards(entry);
   armorEquipped         = entry.armorEquipped ?? 'none'; armorPrevLives=null;
   forestTrees           = Array.isArray(entry.forestTrees) ? entry.forestTrees.map(t=>({...t})) : [];
   goldLevel             = entry.goldLevel ?? (entry.goldModeUnlocked ? 1 : 0);
@@ -1307,7 +1309,7 @@ function openLoadMenu() {
 //  GAME SETUP
 // ═══════════════════════════════════════════════════════════════════
 function startGame(){
-  level=1; lives=3; crowns=0; diamonds=0; iceMissiles=0; ingredients={herb:0,berry:0,mushroom:0,flower:0,feather:0,nut:0}; potions={life:0,atk:0,shield:0}; potionAtk=0; goldRockets=false; saplings=0; forestTrees=[]; armorsOwned=[]; armorEquipped='none'; guardCount=0; army=[]; armorPrevLives=null; goldModeUnlocked=false; goldLevel=0; goldModeOn=true; bossWins={}; iceMultiLevel=0; backpackLevel=0; jetpackLevel=0; jetpackAuto=false; shieldHP=100; shieldBroken=false; shieldBlocked=0;
+  level=1; lives=3; crowns=0; diamonds=0; iceMissiles=0; ingredients={herb:0,berry:0,mushroom:0,flower:0,feather:0,nut:0}; potions={life:0,atk:0,shield:0}; potionAtk=0; goldRockets=false; saplings=0; forestTrees=[]; armorsOwned=[]; armorEquipped='none'; guards=[]; guardSerial=0; armorPrevLives=null; goldModeUnlocked=false; goldLevel=0; goldModeOn=true; bossWins={}; iceMultiLevel=0; backpackLevel=0; jetpackLevel=0; jetpackAuto=false; shieldHP=100; shieldBroken=false; shieldBlocked=0;
   diamondWeaponLevel=0; diamondShieldLevel=0; diamondRocketLevel=0; subjectQuestsDone={};
   rubies=0;
   diamondPlanetBossUnlocked=false; goldPlanetUnlocked=false;
@@ -3019,6 +3021,7 @@ function update(){
     case S.SPLASH_GAME: updateSplashGame(); break;
     case S.SPLASH_GATE: updateSplashGate(); break;
     case S.SPLASH_BOSS: updateSplashBoss(); break;
+    case S.CASTLE:      updateCastle();     break;
   }
   crownFX=crownFX.filter(c=>{ c.y-=1.2; c.life--; return c.life>0; });
   hitFX=hitFX.filter(p=>{ p.x+=p.vx; p.y+=p.vy; p.vy+=0.1; p.life--; return p.life>0; });
@@ -3234,7 +3237,7 @@ function updateSurface(){
 
     // SCHLOSS: ENTER → Wachen anwerben
     if(nearCastle() && justDown['Enter'] && !dialog && !mathQuiz && !kioskOpen && interactCooldown===0){
-      delete justDown['Enter']; openGuardShop(); interactCooldown=30;
+      delete justDown['Enter']; enterCastleInside(); return;
     }
 
     if(interactCooldown===0 && !mathQuiz && !dialog){
@@ -3773,10 +3776,12 @@ function render(){
     case S.SPLASH_GAME: renderSplashGame(); break;
     case S.SPLASH_GATE: renderSplashGate(); break;
     case S.SPLASH_BOSS: renderSplashBoss(); break;
+    case S.CASTLE:      drawCastleInside(); break;
   }
   if(gs===S.SURFACE || isMissileState()) drawGoldTrails();
   if(isMissileState()){ drawBossTierOverlay(); drawImmobilized(); if(goldActive()) drawGoldPowers(); drawIceMissiles(); }
   drawPotionBelt();
+  drawArmyToasts();
   // Mobile touch UI update
   if(mobileMode) { updateTouchUI(); drawVirtualButtons(); }
 }
@@ -4314,8 +4319,6 @@ function drawFX(){
 // ═══════════════════════════════════════════════════════════════════
 const EARTH_CASTLE_X = 600;            // Mitte des Schlosses (Tor)
 const GUARD_PACK = 10, GUARD_PRICE = 100, GUARD_MAX = 50;
-let guardCount = 0;              // gekaufte Wachen (wird gespeichert)
-let army = [], armyGs = null, armyGY = null;
 let castleGreetT = 0;            // Gruß-Anzeige der Torwachen
 
 function nearCastle(){ return gs===S.SURFACE && currentPlanet==='earth' && !inRocket && Math.abs(hero.x+hero.w/2-EARTH_CASTLE_X)<75; }
@@ -4461,62 +4464,170 @@ function drawCastle(wx, gy){
     ctx.fillStyle='#7a1010'; ctx.font='bold 13px monospace'; ctx.textAlign='center';
     ctx.fillText('Willkommen, Astronaut! 🦁', bx, by-5);
     ctx.fillStyle='#205020'; ctx.font='bold 11px monospace';
-    ctx.fillText(`ENTER: Wachen anwerben (${guardCount}/${GUARD_MAX})`, bx, by+10);
+    ctx.fillText(`ENTER: Ins Schloss gehen  (🛡️ ${guards.length}/${GUARD_MAX})`, bx, by+10);
   }
 }
 
-// ── Wache mit Goldrüstung ──
-// cx = Mitte, fy = Fußlinie, f = Blickrichtung (±1)
-// o.spear: 'gate' (Torwache, Speer kreuzt / öffnet), 'march' (Armee); o.shoot: Schuss-Animation
-function drawGuardFig(cx, fy, f, o){
-  o=o||{}; const s=o.scale||1, idle=o.idle||0;
-  ctx.save(); ctx.translate(cx,fy); ctx.scale(s*f,s);
-  const breath=Math.sin(frame*0.06+idle)*0.5, step=o.walk?Math.sin(o.walk)*3:0;
-  const goldG=(y0,y1)=>{ const g=ctx.createLinearGradient(-8,y0,8,y1); g.addColorStop(0,'#fff0a0'); g.addColorStop(0.5,'#f2c230'); g.addColorStop(1,'#a8760a'); return g; };
-  // Schatten
-  ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,0,10,2.5,0,0,Math.PI*2); ctx.fill();
-  // Speer hinten (in der hinteren Hand)
-  const spearAng = o.spear==='gate' ? (1.0*(1-(o.open||0)) - 0.05*(o.open||0)) : -0.08, SL = o.spear==='gate'?44:30;
-  ctx.save(); ctx.translate(-5,-18); ctx.rotate(spearAng);
-  ctx.strokeStyle='#7a5230'; ctx.lineWidth=1.8; ctx.beginPath(); ctx.moveTo(0,16); ctx.lineTo(0,-SL); ctx.stroke();
-  ctx.fillStyle='#e6ebf2'; ctx.beginPath(); ctx.moveTo(-2.4,-SL+1); ctx.lineTo(0,-SL-8); ctx.lineTo(2.4,-SL+1); ctx.closePath(); ctx.fill();
-  ctx.fillStyle='#d6202c'; ctx.beginPath(); ctx.moveTo(0,-SL+2); ctx.lineTo(6,-SL+5); ctx.lineTo(0,-SL+8); ctx.closePath(); ctx.fill();
+// ═══════════════════════════════════════════════════════════════════
+//  WACHEN: einzelne Figuren mit Level, Lebenspunkten und Ausrüstung
+// ═══════════════════════════════════════════════════════════════════
+const GUARD_HP = 100, GUARD_LVL_MAX = 100;
+// Freischaltungen (aufsteigend sortiert – das letzte freigeschaltete ist das beste)
+const GUARD_ARMORS = [
+  { id:'gold',    name:'Gold-Wachrüstung', icon:'🟡', lvl:1,   prot:0.10, body:'#f2c230', helm:'#e8b828', legs:'#a8760a', trim:'#fff0a0', plume:'#d6202c' },
+  { id:'bronze',  name:ARMORS.bronze.name,  icon:ARMORS.bronze.icon,  lvl:10,  prot:0.20, body:ARMORS.bronze.body,  helm:ARMORS.bronze.helm,  legs:ARMORS.bronze.legs,  trim:ARMORS.bronze.trim,  plume:'#d6202c' },
+  { id:'knight',  name:ARMORS.knight.name,  icon:ARMORS.knight.icon,  lvl:30,  prot:0.30, body:ARMORS.knight.body,  helm:ARMORS.knight.helm,  legs:ARMORS.knight.legs,  trim:ARMORS.knight.trim,  plume:ARMORS.knight.plume },
+  { id:'diamond', name:ARMORS.diamond.name, icon:ARMORS.diamond.icon, lvl:60,  prot:0.45, body:ARMORS.diamond.body, helm:ARMORS.diamond.helm, legs:ARMORS.diamond.legs, trim:ARMORS.diamond.trim, plume:'#e8ffff', sparkle:true },
+  { id:'ruby',    name:ARMORS.ruby.name,    icon:ARMORS.ruby.icon,    lvl:100, prot:0.60, body:ARMORS.ruby.body,    helm:ARMORS.ruby.helm,    legs:ARMORS.ruby.legs,    trim:ARMORS.ruby.trim,    plume:'#ffd700', horns:true, best:true },
+];
+const GUARD_CANNONS = [
+  { id:'spritz',  name:'Spritzpistole',     icon:'💧', lvl:1,  dmg:1, shots:1, r:4, size:1.0 },
+  { id:'blaster', name:'Wasserblaster',     icon:'💦', lvl:15, dmg:2, shots:1, r:5, size:1.2 },
+  { id:'doppel',  name:'Doppelspritze',     icon:'🌧️', lvl:35, dmg:2, shots:2, r:5, size:1.25 },
+  { id:'kanone',  name:'Wasserkanone',      icon:'🌊', lvl:60, dmg:3, shots:1, r:7, size:1.5 },
+  { id:'mega',    name:'Mega-Wasserkanone', icon:'🐳', lvl:85, dmg:4, shots:1, r:8, size:1.75 },
+];
+const GUARD_WEAPONS = [
+  { id:'wood',      name:'Holzschwert',    icon:'🪵', lvl:1,  melee:0, blade:'#b8844a', note:'fürs Training' },
+  { id:'spear',     name:'Speer',          icon:'🔱', lvl:1,  melee:1, blade:'#e6ebf2' },
+  { id:'sword',     name:'Ritterschwert',  icon:'⚔️', lvl:20, melee:2, blade:'#dfe6ee' },
+  { id:'goldsword', name:'Goldschwert',    icon:'🗡️', lvl:45, melee:3, blade:'#ffd34d' },
+  { id:'diasword',  name:'Diamantschwert', icon:'💎', lvl:75, melee:4, blade:'#7fe8ff' },
+];
+const GEAR_LISTS = [GUARD_ARMORS, GUARD_CANNONS, GUARD_WEAPONS];
+const GEAR_SLOTS = ['armor','cannon','weapon'];
+const GEAR_TITLES = ['🛡️ Rüstungen','💧 Wasserkanonen','⚔️ Waffen'];
+
+let guards = [], guardSerial = 0;
+let armyGs = null, armyGY = null, armyToasts = [];
+function newGuard(){ return { id:++guardSerial, lvl:1, xp:0, hp:GUARD_HP, sh:100, armor:'gold', cannon:'spritz', weapon:'spear', auto:true }; }
+function gearOf(list,id){ return list.find(x=>x.id===id) || list[0]; }
+function gearFree(g,item){ return !!g && g.lvl>=item.lvl; }
+function bestGear(list,g){ let b=list[0]; for(const it of list) if(g.lvl>=it.lvl && (list!==GUARD_WEAPONS || it.melee>=b.melee)) b=it; return b; }
+function equipBest(g){ g.armor=bestGear(GUARD_ARMORS,g).id; g.cannon=bestGear(GUARD_CANNONS,g).id; g.weapon=bestGear(GUARD_WEAPONS,g).id; }
+function guardXpNeed(l){ return Math.round((2 + l*0.05) * 60); }   // Bildfelder Training je Level
+function saveGuard(g){ return { id:g.id, lvl:g.lvl, xp:Math.floor(g.xp), hp:Math.round(g.hp), sh:Math.round(g.sh), armor:g.armor, cannon:g.cannon, weapon:g.weapon, auto:g.auto!==false }; }
+function loadGuards(entry){
+  guards=[]; guardSerial=0;
+  if(Array.isArray(entry.guards)){
+    for(const o of entry.guards.slice(0,GUARD_MAX)){
+      const g=Object.assign(newGuard(), o);
+      g.lvl=Math.max(1,Math.min(GUARD_LVL_MAX,+g.lvl||1)); g.hp=Math.max(1,Math.min(GUARD_HP,+g.hp||GUARD_HP)); g.sh=Math.max(0,Math.min(100,+g.sh||0));
+      guards.push(g); guardSerial=Math.max(guardSerial,+g.id||0);
+    }
+    guardSerial=Math.max(guardSerial, +entry.guardSerial||0);
+  } else {
+    const n=Math.min(GUARD_MAX, +entry.guardCount||0);   // alte Spielstände: nur Anzahl gespeichert
+    for(let i=0;i<n;i++) guards.push(newGuard());
+  }
+}
+function armyToast(msg,col){ armyToasts.push({msg,col:col||'#ffe680',life:200}); if(armyToasts.length>4) armyToasts.shift(); }
+function drawArmyToasts(){
+  if(!armyToasts.length) return;
+  ctx.save(); ctx.textAlign='center'; ctx.font='bold 15px Courier New';
+  armyToasts.forEach((t,i)=>{
+    const a=Math.min(1,t.life/40), y=(gs===S.CASTLE&&armoryOpen ? H-150 : 118)+i*30, w=Math.min(W-30, ctx.measureText(t.msg).width+30);
+    ctx.globalAlpha=a; ctx.fillStyle='rgba(10,10,25,0.85)'; ctx.beginPath(); ctx.roundRect(W/2-w/2,y-19,w,27,9); ctx.fill();
+    ctx.fillStyle=t.col; ctx.fillText(t.msg, W/2, y);
+  });
   ctx.restore();
-  // Beine (goldene Beinschienen) + Stiefel
-  ctx.fillStyle=goldG(-12,0); ctx.fillRect(-5+step*0.5,-11,4,9); ctx.fillRect(1-step*0.5,-11,4,9);
-  ctx.fillStyle='#3a2a1a'; ctx.fillRect(-6+step*0.5,-3,5,3); ctx.fillRect(1-step*0.5,-3,5,3);
-  // Roter Waffenrock unter dem Panzer
-  ctx.fillStyle='#c41a24'; ctx.beginPath(); ctx.moveTo(-7,-14); ctx.lineTo(7,-14); ctx.lineTo(8,-9); ctx.lineTo(-8,-9); ctx.closePath(); ctx.fill();
-  // Brustpanzer
-  ctx.fillStyle=goldG(-26,-12); ctx.beginPath(); ctx.moveTo(-7,-26+breath); ctx.lineTo(7,-26+breath); ctx.lineTo(6,-13); ctx.lineTo(-6,-13); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle='#8a5e00'; ctx.lineWidth=0.7; ctx.stroke();
-  ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.fillRect(-4,-24+breath,1.5,8);
-  ctx.fillStyle='#d6202c'; ctx.beginPath(); ctx.arc(0,-19+breath,2.2,0,Math.PI*2); ctx.fill(); // Löwen-Medaillon
-  ctx.fillStyle='#ffd34d'; ctx.beginPath(); ctx.arc(0,-19+breath,1,0,Math.PI*2); ctx.fill();
-  // Schulterplatten
-  ctx.fillStyle=goldG(-27,-22); ctx.beginPath(); ctx.ellipse(-6,-25+breath,3.2,2.4,0,0,Math.PI*2); ctx.ellipse(6,-25+breath,3.2,2.4,0,0,Math.PI*2); ctx.fill();
-  // Vorderer Arm: Wasserspritze (Armee) oder Faust (Torwache)
-  ctx.fillStyle=goldG(-24,-14);
-  if(o.spear==='march'){
-    ctx.fillRect(4,-23+breath,3.5,6);
-    ctx.save(); ctx.translate(6,-17+breath); ctx.rotate(o.shoot?-0.05:0.35);
-    ctx.fillStyle=goldG(-3,3); ctx.fillRect(0,-2,9,4);              // goldene Wasserspritze
-    ctx.fillStyle='#3aa0ff'; ctx.beginPath(); ctx.arc(2,-3.5,2.2,0,Math.PI*2); ctx.fill(); // Wassertank
-    ctx.fillStyle='#8fd8ff'; ctx.fillRect(9,-1,2.5,2);
-    if(o.shoot){ ctx.fillStyle='rgba(140,210,255,0.9)'; ctx.beginPath(); ctx.arc(13,0,2.6,0,Math.PI*2); ctx.fill(); }
-    ctx.restore();
-  } else { ctx.fillRect(4,-23+breath,3.5,10); }
-  // Kopf: goldener Helm mit Visier und rotem Federbusch
-  ctx.fillStyle='#f2c8a0'; ctx.fillRect(-3,-29+breath,6,3);
-  ctx.fillStyle=goldG(-38,-28); ctx.beginPath(); ctx.arc(0,-32+breath,5.4,Math.PI,0); ctx.lineTo(5.4,-28+breath); ctx.lineTo(-5.4,-28+breath); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle='#8a5e00'; ctx.lineWidth=0.7; ctx.stroke();
-  ctx.fillStyle='#2b1d05'; ctx.fillRect(0.5,-32+breath,5,1.4);                      // Sehschlitz
-  ctx.fillStyle='#d6202c'; ctx.beginPath(); ctx.moveTo(-1,-37+breath);
-  ctx.quadraticCurveTo(-9+Math.sin(frame*0.1+idle),-42+breath,-10,-33+breath); ctx.quadraticCurveTo(-5,-37+breath,-1,-35+breath); ctx.closePath(); ctx.fill();
-  ctx.restore();
+  armyToasts=armyToasts.filter(t=>--t.life>0);
 }
 
-// ── Armee: folgt dem Astronauten und schießt Wasser (1 Schaden) ──
+// ── Zeichnen: Waffen, Kanonen, Wache ──
+function drawWeaponShape(id, len){
+  const Wp=gearOf(GUARD_WEAPONS,id);
+  if(id==='spear'){
+    ctx.strokeStyle='#7a5230'; ctx.lineWidth=1.8; ctx.beginPath(); ctx.moveTo(0,len*0.35); ctx.lineTo(0,-len); ctx.stroke();
+    ctx.fillStyle='#e6ebf2'; ctx.beginPath(); ctx.moveTo(-2.4,-len+1); ctx.lineTo(0,-len-8); ctx.lineTo(2.4,-len+1); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#d6202c'; ctx.beginPath(); ctx.moveTo(0,-len+2); ctx.lineTo(6,-len+5); ctx.lineTo(0,-len+8); ctx.closePath(); ctx.fill();
+    return;
+  }
+  const L=len*0.62;
+  ctx.fillStyle='#5b3a1e'; ctx.fillRect(-1.2,0,2.4,6);                                   // Griff
+  ctx.fillStyle=id==='wood'?'#8a5a2b':'#ffd34d'; ctx.fillRect(-4,-1.5,8,2.2);            // Parierstange
+  ctx.fillStyle=Wp.blade; ctx.beginPath(); ctx.moveTo(-1.8,-1.5); ctx.lineTo(-1.8,-L); ctx.lineTo(0,-L-4); ctx.lineTo(1.8,-L); ctx.lineTo(1.8,-1.5); ctx.closePath(); ctx.fill();
+  if(id!=='wood'){ ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.fillRect(-0.4,-L+2,0.8,L-4); }
+  if(id==='diasword' && Math.sin(frame*0.2)>0.6){ ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,-L*0.6,1.4,0,Math.PI*2); ctx.fill(); }
+}
+function drawCannonShape(id, shoot){
+  const C=gearOf(GUARD_CANNONS,id), k=C.size;
+  ctx.save(); ctx.scale(k,k);
+  const gold=ctx.createLinearGradient(0,-3,0,3); gold.addColorStop(0,'#fff0a0'); gold.addColorStop(0.5,'#f2c230'); gold.addColorStop(1,'#a8760a');
+  if(id==='doppel'){ ctx.fillStyle=gold; ctx.fillRect(0,-3.5,9,2.6); ctx.fillRect(0,0.9,9,2.6); }
+  else { ctx.fillStyle=gold; ctx.fillRect(0,-2,9,4); }
+  ctx.fillStyle= id==='mega'?'#1f6fff':'#3aa0ff';
+  ctx.beginPath(); ctx.arc(2,-4,2.3,0,Math.PI*2); ctx.fill();                               // Wassertank
+  if(id==='blaster'||id==='kanone'||id==='mega'){ ctx.beginPath(); ctx.arc(5.5,-4,2,0,Math.PI*2); ctx.fill(); }
+  if(id==='kanone'||id==='mega'){ ctx.fillStyle='#8a5e00'; ctx.fillRect(8,-2.6,2.2,5.2); }  // Mündungsring
+  ctx.fillStyle='#8fd8ff'; ctx.fillRect(9,-1,2.5,2);
+  if(shoot){ ctx.fillStyle='rgba(140,210,255,0.9)'; ctx.beginPath(); ctx.arc(13,0,2.6,0,Math.PI*2); ctx.fill(); }
+  ctx.restore();
+}
+// cx = Mitte, fy = Fußlinie, f = Blickrichtung (±1)
+// o.mode: 'gate' (Torwache), 'march' (Armee), 'spar' (Training), 'stand' (Rüstungsständer)
+function drawGuardFig(cx, fy, f, o){
+  o=o||{}; const s=o.scale||1, idle=o.idle||0, mode=o.mode||o.spear||'march';
+  const A=o.armor || GUARD_ARMORS[0];
+  ctx.save(); ctx.translate(cx,fy); ctx.scale(s*f,s);
+  if(o.hitT>0){ ctx.translate((Math.random()-.5)*2,0); }
+  const breath=Math.sin(frame*0.06+idle)*0.5, step=o.walk?Math.sin(o.walk)*3:0;
+  const met=(y0,y1)=>{ const g=ctx.createLinearGradient(-8,y0,8,y1); g.addColorStop(0,A.trim); g.addColorStop(0.5,A.body); g.addColorStop(1,A.legs); return g; };
+  ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,0,10,2.5,0,0,Math.PI*2); ctx.fill();
+  // Hintere Hand: Speer (Tor), Waffe (Armee) oder Holzschild (Training)
+  if(mode==='gate'){
+    ctx.save(); ctx.translate(-5,-18); ctx.rotate(1.0*(1-(o.open||0)) - 0.05*(o.open||0)); drawWeaponShape('spear',44); ctx.restore();
+  } else if(mode==='march'){
+    ctx.save(); ctx.translate(-5,-18); ctx.rotate(o.swingT>0 ? 1.2 : -0.08); drawWeaponShape(o.weapon||'spear', 30); ctx.restore();
+  }
+  // Beine + Stiefel
+  ctx.fillStyle=met(-12,0); ctx.fillRect(-5+step*0.5,-11,4,9); ctx.fillRect(1-step*0.5,-11,4,9);
+  ctx.fillStyle='#3a2a1a'; ctx.fillRect(-6+step*0.5,-3,5,3); ctx.fillRect(1-step*0.5,-3,5,3);
+  // Waffenrock + Brustpanzer
+  ctx.fillStyle='#c41a24'; ctx.beginPath(); ctx.moveTo(-7,-14); ctx.lineTo(7,-14); ctx.lineTo(8,-9); ctx.lineTo(-8,-9); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=met(-26,-12); ctx.beginPath(); ctx.moveTo(-7,-26+breath); ctx.lineTo(7,-26+breath); ctx.lineTo(6,-13); ctx.lineTo(-6,-13); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=0.7; ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.fillRect(-4,-24+breath,1.5,8);
+  ctx.fillStyle='#d6202c'; ctx.beginPath(); ctx.arc(0,-19+breath,2.2,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#ffd34d'; ctx.beginPath(); ctx.arc(0,-19+breath,1,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=met(-27,-22); ctx.beginPath(); ctx.ellipse(-6,-25+breath,3.2,2.4,0,0,Math.PI*2); ctx.ellipse(6,-25+breath,3.2,2.4,0,0,Math.PI*2); ctx.fill();
+  // Holzschild (Training) vor dem Körper
+  if(mode==='spar'){
+    const up=o.block?1:0;
+    ctx.save(); ctx.translate(5,-17-up*5+breath);
+    ctx.fillStyle='#9a6a34'; ctx.beginPath(); ctx.ellipse(0,0,4.2,6.5,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#5b3a1e'; ctx.lineWidth=1; ctx.stroke(); ctx.fillStyle='#c8c8c8'; ctx.beginPath(); ctx.arc(0,0,1.3,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+  // Vordere Hand
+  ctx.fillStyle=met(-24,-14);
+  if(mode==='march'){
+    ctx.fillRect(4,-23+breath,3.5,6);
+    ctx.save(); ctx.translate(6,-17+breath); ctx.rotate(o.shoot?-0.05:0.35); drawCannonShape(o.cannon||'spritz', o.shoot); ctx.restore();
+  } else if(mode==='spar'){
+    ctx.save(); ctx.translate(6,-20+breath); ctx.rotate(-0.4 + (o.swing||0)*2.0); drawWeaponShape('wood', 22); ctx.restore();
+  } else if(mode!=='stand'){ ctx.fillRect(4,-23+breath,3.5,10); }
+  // Helm mit Visier + Federbusch
+  if(mode!=='stand'){ ctx.fillStyle='#f2c8a0'; ctx.fillRect(-3,-29+breath,6,3); }
+  ctx.fillStyle=met(-38,-28); ctx.beginPath(); ctx.arc(0,-32+breath,5.4,Math.PI,0); ctx.lineTo(5.4,-28+breath); ctx.lineTo(-5.4,-28+breath); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=0.7; ctx.stroke();
+  ctx.fillStyle='#2b1d05'; ctx.fillRect(0.5,-32+breath,5,1.4);
+  if(A.horns){ ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.moveTo(-4,-35+breath); ctx.lineTo(-7,-41+breath); ctx.lineTo(-2,-36+breath); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(3,-36+breath); ctx.lineTo(6,-41+breath); ctx.lineTo(5,-35+breath); ctx.closePath(); ctx.fill(); }
+  else { ctx.fillStyle=A.plume||'#d6202c'; ctx.beginPath(); ctx.moveTo(-1,-37+breath);
+    ctx.quadraticCurveTo(-9+Math.sin(frame*0.1+idle),-42+breath,-10,-33+breath); ctx.quadraticCurveTo(-5,-37+breath,-1,-35+breath); ctx.closePath(); ctx.fill(); }
+  if(A.sparkle && Math.sin(frame*0.15+idle)>0.7){ ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(-3,-22,1.2,0,Math.PI*2); ctx.arc(3,-34,1,0,Math.PI*2); ctx.fill(); }
+  if(o.blockT>0){ ctx.strokeStyle='rgba(140,220,255,0.9)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(4,-18,12,-1.2,1.2); ctx.stroke(); }
+  ctx.restore();
+}
+function drawGuardBars(cx, top, g){
+  const w=18;
+  ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(cx-w/2-1,top-1,w+2,7);
+  ctx.fillStyle=g.hp>50?'#4f4':g.hp>25?'#fc3':'#f44'; ctx.fillRect(cx-w/2,top,w*Math.max(0,g.hp)/GUARD_HP,2.5);
+  ctx.fillStyle='#6cf'; ctx.fillRect(cx-w/2,top+3,w*Math.max(0,g.sh)/100,2);
+}
+
+// ── Armee im Einsatz ──
 function armyGround(){
   if(gs===S.SURFACE) return groundY();
   if(hero.onGround || armyGY===null) armyGY=hero.y+hero.h;
@@ -4540,68 +4651,477 @@ function armyTargets(){
   }
   return out;
 }
+// Gegnerische Geschosse, die Wachen treffen können
+function armyEnemyShots(){
+  if(gs===S.SURFACE) return [mProjectiles];
+  if(gs===S.BOSS) return [bossProjectiles];
+  if(gs===S.DIAMOND_BOSS) return [dbProjectiles];
+  if(gs===S.GOLD_BOSS) return [gbProjectiles];
+  if(gs===S.RUBY_BOSS) return [rubyProjectiles];
+  if(gs===S.SPLASH_BOSS) return [splashIcicles];
+  return [];
+}
+function guardHit(g, dmg){
+  if(g.sh>0 && Math.random()<0.35){ g.sh=Math.max(0,g.sh-8); g._blockT=12; playFX(900,0.05,'triangle',0.06); return; }
+  const A=gearOf(GUARD_ARMORS,g.armor);
+  g.hp-=dmg*(1-A.prot); g._hitT=12;
+}
 function updateArmy(){
-  if(guardCount<=0){ army.length=0; return; }
-  const n=Math.min(guardCount,GUARD_MAX), gyA=armyGround(), hc=hero.x+hero.w/2;
-  const snap = armyGs!==gs || army.length!==n;
-  if(snap){ armyGY=null; }
-  while(army.length<n) army.push({x:hc,walk:0,cd:Math.floor(Math.random()*40),shootT:0});
-  army.length=n; armyGs=gs;
+  if(!guards.length) return;
+  const snap = armyGs!==gs; if(snap) armyGY=null; armyGs=gs;
+  const n=guards.length, gyA=armyGround(), hc=hero.x+hero.w/2;
   const f=hero.facing||1, inR=(gs===S.SURFACE && inRocket);
-  const targets=inR?[]:armyTargets(), wantShoot=!!keys['KeyW'] && !inR;
+  const targets=inR?[]:armyTargets(), wantShoot=!!keys['KeyW'] && !inR, shots=inR?[]:armyEnemyShots();
   const span=30+Math.min(n,GUARD_PACK)*23+11, minX=10, maxX=(gs===S.SURFACE?WORLD_W:W)-10;
   let side=-f;                                            // normalerweise hinter dem Astronauten
   if(hc+side*span<minX || hc+side*span>maxX) side=-side;  // kein Platz → auf die andere Seite
-  army.forEach((g,i)=>{
+  const range = gs===S.SURFACE ? 560 : 2400;
+  guards.forEach((g,i)=>{
     const row=Math.floor(i/GUARD_PACK), col=i%GUARD_PACK;
     const tx=Math.max(minX,Math.min(maxX, hc + side*(30 + col*23 + (row%2)*11)));
-    if(snap) g.x=tx;
-    const dx=tx-g.x, mv=Math.max(-5,Math.min(5,dx*0.09));
-    g.x+=mv; g.walk = Math.abs(mv)>0.3 ? g.walk+0.35 : 0;
-    g.row=row; if(g.shootT<=0) g.f = Math.abs(dx)>14 ? Math.sign(dx) : f;
-    if(g.cd>0) g.cd--; if(g.shootT>0) g.shootT--;
-    if(g.cd<=0 && (wantShoot || targets.length)){
-      const sx=g.x, sy=gyA - row*10 - 17;
-      // nächstes Ziel in Reichweite suchen (Wachen zielen selbstständig)
-      let best=null, bd=1e9; const range = gs===S.SURFACE ? 560 : 2400;
+    if(snap || g._x===undefined){ g._x=tx; g._walk=0; g._cd=Math.floor(Math.random()*40); g._shootT=0; g._melee=0; g._touch=0; }
+    const dx=tx-g._x, mv=Math.max(-5,Math.min(5,dx*0.09));
+    g._x+=mv; g._walk = Math.abs(mv)>0.3 ? g._walk+0.35 : 0; g._row=row;
+    if(!(g._shootT>0)) g._f = Math.abs(dx)>14 ? Math.sign(dx) : f;
+    for(const k of ['_cd','_shootT','_melee','_touch','_hitT','_blockT','_swingT']) if(g[k]>0) g[k]--;
+    const fy=gyA-row*10, gx=g._x;
+    // Treffer durch gegnerische Geschosse (die Wache fängt sie ab)
+    for(const arr of shots){
+      for(let k=arr.length-1;k>=0;k--){ const p=arr[k];
+        if(circRect(p.x,p.y,p.r||6,gx-8,fy-34,16,34)){ arr.splice(k,1); guardHit(g,10); } }
+    }
+    // Berührung mit Monstern + Nahkampf mit der Waffe
+    const Wp=gearOf(GUARD_WEAPONS,g.weapon);
+    for(const t of targets){
+      const tw=t.w||40, th=t.h||40;
+      const touching = gx+8>t.x-4 && gx-8<t.x+tw+4 && fy>t.y && fy-34<t.y+th;
+      if(!touching) continue;
+      if(g._touch<=0){ guardHit(g,5); g._touch=30; }
+      if(Wp.melee>0 && g._melee<=0){
+        pProjectiles.push({x:t.x+tw/2, y:t.y+th/2, vx:0, vy:0, life:3, r:8, power:Wp.melee, guard:true, melee:true});
+        g._melee=40; g._swingT=10;
+      }
+      break;
+    }
+    // Wasserschüsse
+    if(g._cd<=0 && (wantShoot || targets.length)){
+      const sx=gx, sy=fy-17;
+      let best=null, bd=1e9;
       for(const t of targets){ const w=t.w||40, h=t.h||40, tx2=t.x+w/2, ty2=t.y+h/2, d=Math.hypot(tx2-sx,ty2-sy);
         if(d<bd && d<range){ bd=d; const tt=d/9; best={x:tx2+(t.vx||0)*tt, y:ty2+(t.vy||0)*tt}; } }
       if(best || wantShoot){
         let vx=f*9, vy=0, dir=f;
         if(best){ const dx2=best.x-sx, dy2=best.y-sy, L=Math.hypot(dx2,dy2)||1; vx=dx2/L*9; vy=dy2/L*9; dir=dx2<0?-1:1; }
-        pProjectiles.push({x:sx+dir*14, y:sy, vx, vy, life:gs===S.SURFACE?80:170, r:4, power:1, guard:true});
-        g.cd=55+Math.floor(Math.random()*35); g.shootT=8; g.f=dir;
-      } else g.cd=10;
+        const C=gearOf(GUARD_CANNONS,g.cannon);
+        for(let s2=0;s2<C.shots;s2++){
+          const off=C.shots>1?(s2?4:-4):0;
+          pProjectiles.push({x:sx+dir*14, y:sy+off, vx, vy, life:gs===S.SURFACE?80:170, r:C.r, power:C.dmg, guard:true});
+        }
+        g._cd=55+Math.floor(Math.random()*35); g._shootT=8; g._f=dir;
+      } else g._cd=10;
     }
   });
+  // Kaputte Wachen entfernen
+  const dead=guards.filter(g=>g.hp<=0);
+  if(dead.length){
+    for(const g of dead){
+      const fy=gyA-(g._row||0)*10;
+      for(let j=0;j<22;j++) hitFX.push({x:g._x,y:fy-18,vx:(Math.random()-.5)*6,vy:-1-Math.random()*4,life:40,color:['#ffd700','#bbb','#d6202c'][j%3]});
+    }
+    guards=guards.filter(g=>g.hp>0);
+    playFX(160,0.35,'sawtooth',0.12);
+    armyToast(dead.length===1 ? `💥 Wache #${dead[0].id} (Lv ${dead[0].lvl}) ist kaputt gegangen!` : `💥 ${dead.length} Wachen sind kaputt gegangen!`, '#ff9a9a');
+  }
 }
 function drawArmy(){
-  if(!army.length) return;
+  if(!guards.length || guards[0]._x===undefined) return;
   const gyA = gs===S.SURFACE ? groundY() : (armyGY!==null?armyGY:hero.y+hero.h);
-  for(let i=army.length-1;i>=0;i--){
-    const g=army[i];
-    drawGuardFig(g.x, gyA - g.row*10, g.f||1, {spear:'march', walk:g.walk, shoot:g.shootT>0, scale:1, idle:i*0.7});
+  for(let i=guards.length-1;i>=0;i--){
+    const g=guards[i]; if(g._x===undefined) continue;
+    const fy=gyA-(g._row||0)*10;
+    drawGuardFig(g._x, fy, g._f||1, {mode:'march', armor:gearOf(GUARD_ARMORS,g.armor), cannon:g.cannon, weapon:g.weapon,
+      walk:g._walk, shoot:g._shootT>0, swingT:g._swingT, hitT:g._hitT, blockT:g._blockT, idle:i*0.7});
+    if(g.hp<GUARD_HP || g.sh<100) drawGuardBars(g._x, fy-48, g);
   }
-  // kleines Abzeichen über der Armee
-  const lead=army[0];
+  const lead=guards[0];
   ctx.fillStyle='rgba(255,215,0,0.9)'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
-  ctx.fillText(`🛡️ ${army.length}`, lead.x, gyA-48);
+  ctx.fillText(`🛡️ ${guards.length}`, lead._x, gyA-54);
 }
 
 function openGuardShop(){
-  if(guardCount>=GUARD_MAX){
-    dialog={msg:`🏰 Deine Armee ist voll!\n${GUARD_MAX} Wachen mit Goldrüstung\nbegleiten dich schon.`,yLabel:'OK',nLabel:null,onY:()=>{dialog=null;},onN:null};
+  if(guards.length>=GUARD_MAX){
+    dialog={msg:`🏰 Deine Armee ist voll!\n${GUARD_MAX} Wachen begleiten dich schon.`,yLabel:'OK',nLabel:null,onY:()=>{dialog=null;},onN:null};
   } else if(diamonds<GUARD_PRICE){
     dialog={msg:`🏰 Zu wenig Diamanten!\n${GUARD_PACK} Wachen kosten ${GUARD_PRICE} 💎\n(du hast ${diamonds} 💎)`,yLabel:'OK',nLabel:null,onY:()=>{dialog=null;},onN:null};
   } else {
-    const add=Math.min(GUARD_PACK, GUARD_MAX-guardCount);
-    dialog={msg:`🦁 ${add} Wachen mit Goldrüstung anwerben?\nSie begleiten dich überall und\nschießen Wasser auf Monster.\nKosten: ${GUARD_PRICE} 💎   (Armee: ${guardCount}/${GUARD_MAX})`,
+    const add=Math.min(GUARD_PACK, GUARD_MAX-guards.length);
+    dialog={msg:`🦁 ${add} Wachen mit Goldrüstung anwerben?\nSie begleiten dich überall, haben je 100 ❤\nund schießen Wasser auf Monster.\nKosten: ${GUARD_PRICE} 💎   (Armee: ${guards.length}/${GUARD_MAX})`,
       yLabel:'J – Ja',nLabel:'N – Nein',
-      onY:()=>{ diamonds-=GUARD_PRICE; guardCount=Math.min(GUARD_MAX,guardCount+add); dialog=null;
+      onY:()=>{ diamonds-=GUARD_PRICE; for(let i=0;i<add;i++) guards.push(newGuard()); dialog=null;
         playFX(523,0.12,'square',0.15); setTimeout(()=>playFX(784,0.25,'square',0.15),130);
-        for(let j=0;j<30;j++) hitFX.push({x:EARTH_CASTLE_X,y:groundY()-40,vx:(Math.random()-.5)*6,vy:-2-Math.random()*5,life:45,color:['#ffd700','#ff3333','#fff2a0'][j%3]}); },
+        armyToast(`🦁 ${add} neue Wachen! Trainiere sie im Keller des Schlosses.`); },
       onN:()=>{dialog=null;}};
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  SCHLOSS INNEN: Halle (Ausgang, Hauptmann, Waffenschrank, Treppe)
+//                 und Trainingsraum im Keller
+// ═══════════════════════════════════════════════════════════════════
+let castleFloor = 0, armoryOpen = false, armoryGi = 0, armorySel = 0, armoryHits = [], armoryMsg = '';
+let castlePops = [], castleFade = 0;
+function castleK(){ return Math.max(1.3, Math.min(2.4, H/380)); }
+function castleVW(){ return W/castleK(); }
+function castleVH(){ return H/castleK(); }
+function castleFloorY(){ return castleVH()-34; }
+function castleSpots(){
+  const VW=castleVW();
+  return castleFloor===0
+    ? { door:46, desk:VW*0.25, cab:VW*0.53, stair:VW-62 }
+    : { stair:VW-62 };
+}
+function castleNear(){
+  const c=hero.x+hero.w/2, sp=castleSpots();
+  if(sp.door!==undefined && Math.abs(c-sp.door)<28) return 'door';
+  if(sp.desk!==undefined && Math.abs(c-sp.desk)<34) return 'desk';
+  if(sp.cab!==undefined && Math.abs(c-sp.cab)<62) return 'cab';
+  if(Math.abs(c-sp.stair)<34) return 'stair';
+  return null;
+}
+function enterCastleInside(){
+  gs=S.CASTLE; castleFloor=0; armoryOpen=false; castleFade=20;
+  hero.x=70; hero.vx=0; hero.vy=0; hero.facing=1; hero.onGround=true; hero.y=castleFloorY()-hero.h;
+  clearJust();
+  playFX(392,0.15,'sine',0.12); setTimeout(()=>playFX(523,0.2,'sine',0.12),120);
+  if(guards.some(g=>g.hp<GUARD_HP||g.sh<100)) armyToast('🏰 Im Schloss erholen sich deine Wachen.','#9f9');
+}
+function leaveCastle(){
+  gs=S.SURFACE; armoryOpen=false; castleFloor=0;
+  hero.x=EARTH_CASTLE_X-hero.w/2; hero.y=groundY()-hero.h; hero.vx=0; hero.vy=0; hero.onGround=true;
+  camX=Math.max(0,Math.min(WORLD_W-W, hero.x+hero.w/2-W/2));
+  interactCooldown=30; castleGreetT=40; clearJust();
+}
+function castleGoFloor(fl){
+  castleFloor=fl; castleFade=18; hero.x=castleVW()-62-hero.w/2; hero.facing=-1;
+  playFX(fl?330:440,0.12,'sine',0.1);
+}
+function castleAct(what){
+  if(what==='door') leaveCastle();
+  else if(what==='desk') openGuardShop();
+  else if(what==='cab'){ armoryOpen=true; armoryMsg=''; armoryGi=Math.min(armoryGi,Math.max(0,guards.length-1)); }
+  else if(what==='stair') castleGoFloor(castleFloor?0:1);
+}
+function updateCastle(){
+  // Erholung im Schloss
+  for(const g of guards){ g.hp=Math.min(GUARD_HP,g.hp+0.6); g.sh=Math.min(100,g.sh+0.6); }
+  if(castleFade>0) castleFade--;
+  castlePops=castlePops.filter(p=>{ p.y-=0.35; return --p.life>0; });
+  if(castleFloor===1) trainGuards();
+  if(armoryOpen || dialog) return;
+  hero.vx=0;
+  if(keys['ArrowLeft'])  { hero.vx=-2.4; hero.facing=-1; }
+  if(keys['ArrowRight']) { hero.vx= 2.4; hero.facing= 1; }
+  hero.x=Math.max(14, Math.min(castleVW()-14-hero.w, hero.x+hero.vx));
+  hero.y=castleFloorY()-hero.h; hero.onGround=true;
+  const near=castleNear();
+  if(justDown['Escape']){ if(castleFloor===1) castleGoFloor(0); else leaveCastle(); return; }
+  if(castleFloor===0){
+    if(near==='door' && (justDown['Enter']||justDown['ArrowUp'])) return castleAct('door');
+    if(near==='desk' && justDown['Enter']) return castleAct('desk');
+    if(near==='cab' && justDown['Enter']) return castleAct('cab');
+    if(near==='stair' && (justDown['Enter']||justDown['ArrowDown'])) return castleAct('stair');
+  } else {
+    if(near==='stair' && (justDown['Enter']||justDown['ArrowUp'])) return castleAct('stair');
+  }
+}
+// ── Training: Übungskampf ohne Schaden, Wachen steigen im Level auf ──
+function trainGuards(){
+  const events={};
+  for(const g of guards){
+    if(g.lvl>=GUARD_LVL_MAX) continue;
+    g.xp+=1;
+    while(g.lvl<GUARD_LVL_MAX && g.xp>=guardXpNeed(g.lvl)){
+      g.xp-=guardXpNeed(g.lvl); g.lvl++;
+      const un=[]; GEAR_LISTS.forEach(L=>L.forEach(it=>{ if(it.lvl===g.lvl) un.push(it); }));
+      if(un.length && g.auto!==false) equipBest(g);
+      const e=events[g.lvl]||(events[g.lvl]={n:0,items:un}); e.n++;
+    }
+    if(g.lvl>=GUARD_LVL_MAX) g.xp=0;
+  }
+  for(const l in events){
+    const e=events[l];
+    if(e.items.length){
+      armyToast(`🔓 ${e.n===1?'Eine Wache':e.n+' Wachen'} auf Level ${l}: ${e.items.map(i=>i.icon+' '+i.name).join(', ')} frei!`, '#9ff');
+      playFX(660,0.1,'square',0.12); setTimeout(()=>playFX(990,0.2,'square',0.12),110);
+    } else if(+l%10===0 || +l===GUARD_LVL_MAX){
+      armyToast(`⬆️ ${e.n===1?'Eine Wache':e.n+' Wachen'} erreicht Level ${l}!`+(+l===GUARD_LVL_MAX?' 🏆 Alles freigeschaltet!':''), '#ffe680');
+    }
+  }
+}
+
+// ── Zeichnen: Schloss innen ──
+function drawCastleInside(){
+  const K=castleK(), VW=castleVW(), VH=castleVH(), fy=castleFloorY();
+  ctx.save(); ctx.scale(K,K);
+  if(castleFloor===0) drawCastleHall(VW,VH,fy); else drawTrainingRoom(VW,VH,fy);
+  drawHero2(hero.x, fy-hero.h);
+  // Hinweis über dem nahen Objekt
+  const near=castleNear(), sp=castleSpots();
+  const tip = castleFloor===0
+    ? { door:'ENTER / ↑: Hinausgehen', desk:'ENTER: Wachen anwerben (100 💎)', cab:'ENTER: Waffenschrank öffnen', stair:'↓ / ENTER: Zum Trainingsraum' }
+    : { stair:'↑ / ENTER: Zurück in die Halle' };
+  if(near && tip[near]){
+    const x=Math.max(70,Math.min(VW-70,sp[near])), y=fy-118;
+    ctx.font='bold 8px monospace'; const w=ctx.measureText(tip[near]).width+14;
+    ctx.fillStyle='rgba(255,250,220,0.95)'; ctx.beginPath(); ctx.roundRect(x-w/2,y-9,w,14,5); ctx.fill();
+    ctx.fillStyle='#402000'; ctx.textAlign='center'; ctx.fillText(tip[near], x, y+1);
+  }
+  castlePops.forEach(p=>{ ctx.globalAlpha=Math.min(1,p.life/25); ctx.fillStyle=p.col; ctx.font='bold 7px monospace'; ctx.textAlign='center'; ctx.fillText(p.t,p.x,p.y); });
+  ctx.globalAlpha=1;
+  ctx.restore();
+  if(castleFade>0){ ctx.fillStyle=`rgba(0,0,0,${castleFade/20})`; ctx.fillRect(0,0,W,H); }
+  drawHUD();
+  // Kopfzeile
+  ctx.fillStyle='rgba(20,10,5,0.75)'; ctx.fillRect(0,H-26,W,26);
+  ctx.fillStyle='#ffe6a0'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
+  ctx.fillText(castleFloor===0 ? `🏰 Schlosshalle  |  🛡️ Wachen: ${guards.length}/${GUARD_MAX}  |  ← → Laufen  |  ENTER Benutzen  |  ESC Hinaus`
+                               : `🏋️ Trainingsraum  |  Wachen trainieren automatisch, solange du zusiehst  |  ↑ Treppe  |  ESC Zurück`, W/2, H-8);
+  if(armoryOpen) renderArmory();
+}
+function drawTorch(x,y){
+  ctx.fillStyle='#5b3a1e'; ctx.fillRect(x-1.5,y,3,10);
+  const fl=Math.sin(frame*0.3+x)*1.5;
+  const g=ctx.createRadialGradient(x,y-3,0,x,y-3,22); g.addColorStop(0,'rgba(255,200,90,0.45)'); g.addColorStop(1,'rgba(255,160,40,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y-3,22,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#ff9a20'; ctx.beginPath(); ctx.ellipse(x,y-3,2.6,4.5+fl*0.3,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#ffe680'; ctx.beginPath(); ctx.ellipse(x,y-2,1.3,2.4,0,0,Math.PI*2); ctx.fill();
+}
+function drawBanner(x,y){
+  const cv=lionFlagCanvas();
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle='#5b3a1e'; ctx.fillRect(-16,-2,32,3);
+  ctx.drawImage(cv, 60,0,120,160, -14,0, 28, 38);
+  ctx.fillStyle='#a90f1a'; ctx.beginPath(); ctx.moveTo(-14,38); ctx.lineTo(0,46); ctx.lineTo(14,38); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawCastleHall(VW,VH,fy){
+  // Wände
+  stoneWall(0,0,VW,fy);
+  ctx.fillStyle='rgba(40,20,10,0.28)'; ctx.fillRect(0,0,VW,fy);
+  // Boden mit rotem Teppich
+  ctx.fillStyle='#6b4a2a'; ctx.fillRect(0,fy,VW,VH-fy);
+  ctx.fillStyle='#57391f'; for(let x=0;x<VW;x+=18) ctx.fillRect(x,fy,1,VH-fy);
+  ctx.fillStyle='#b5121b'; ctx.fillRect(30,fy+2,VW-60,10); ctx.fillStyle='#ffd34d'; ctx.fillRect(30,fy+2,VW-60,1); ctx.fillRect(30,fy+11,VW-60,1);
+  // Fenster, Banner, Fackeln, Kronleuchter
+  for(const x of [VW*0.14, VW*0.40, VW*0.68]) castleWindow(x-6, fy-128, 12, 30, true);
+  drawBanner(VW*0.27, 22); drawBanner(VW*0.80, 22);
+  for(const x of [VW*0.08, VW*0.36, VW*0.64, VW*0.9]) drawTorch(x, fy-80);
+  const cx=VW*0.5; ctx.strokeStyle='#5b4a3a'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,22); ctx.stroke();
+  ctx.fillStyle='#d4a017'; ctx.fillRect(cx-22,22,44,3);
+  for(let i=-2;i<=2;i++){ ctx.fillStyle='#fff8e0'; ctx.fillRect(cx+i*10-1,16,2,6); ctx.fillStyle='#ffb020'; ctx.beginPath(); ctx.arc(cx+i*10,15,1.6,0,Math.PI*2); ctx.fill(); }
+  const sp=castleSpots();
+  // Ausgang (Tür)
+  ctx.fillStyle='#4a4e56'; ctx.beginPath(); ctx.moveTo(sp.door-20,fy); ctx.lineTo(sp.door-20,fy-46); ctx.arc(sp.door,fy-46,20,Math.PI,0); ctx.lineTo(sp.door+20,fy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#6b3f1d'; ctx.beginPath(); ctx.moveTo(sp.door-16,fy); ctx.lineTo(sp.door-16,fy-46); ctx.arc(sp.door,fy-46,16,Math.PI,0); ctx.lineTo(sp.door+16,fy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#ffd34d'; ctx.beginPath(); ctx.arc(sp.door+10,fy-28,1.8,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#ffe6a0'; ctx.font='bold 7px monospace'; ctx.textAlign='center'; ctx.fillText('🚪 AUSGANG', sp.door, fy-70);
+  // Hauptmann am Werbetisch
+  drawGuardFig(sp.desk+4, fy, -1, {mode:'gate', open:1, scale:1.25, armor:GUARD_ARMORS[2]});
+  ctx.fillStyle='#7a4a22'; ctx.fillRect(sp.desk-26,fy-22,40,4); ctx.fillRect(sp.desk-23,fy-18,3,18); ctx.fillRect(sp.desk+8,fy-18,3,18);
+  ctx.fillStyle='#f4e4c0'; ctx.fillRect(sp.desk-18,fy-26,14,4); ctx.fillStyle='#ffd700'; ctx.font='7px serif'; ctx.fillText('💎', sp.desk+2, fy-24);
+  ctx.fillStyle='#ffe6a0'; ctx.font='bold 7px monospace'; ctx.fillText('⚔️ HAUPTMANN – Wachen anwerben', sp.desk, fy-62);
+  drawArmoryCabinet(sp.cab, fy);
+  // Treppe nach unten
+  const sx=sp.stair;
+  ctx.fillStyle='#1a1410'; ctx.fillRect(sx-30,fy,60,VH-fy);
+  for(let i=0;i<5;i++){ ctx.fillStyle=`rgb(${110-i*14},${100-i*14},${92-i*14})`; ctx.fillRect(sx-30+i*6,fy+i*5,60-i*6,5); }
+  ctx.fillStyle='#5b3a1e'; ctx.fillRect(sx-32,fy-18,3,18); ctx.fillRect(sx+29,fy-18,3,18); ctx.fillRect(sx-32,fy-19,64,2);
+  ctx.fillStyle='#ffe6a0'; ctx.font='bold 7px monospace'; ctx.fillText('⬇ TRAININGSRAUM', sx, fy-26);
+}
+function drawArmoryCabinet(cx, fy){
+  const w=128, h=104, x=cx-w/2, y=fy-h;
+  const maxLvl=guards.reduce((m,g)=>Math.max(m,g.lvl),0);
+  ctx.fillStyle='#4a2c14'; ctx.fillRect(x-4,y-8,w+8,h+8);
+  ctx.fillStyle='#6b4423'; ctx.fillRect(x-6,y-12,w+12,6);
+  ctx.fillStyle='#2a1a0c'; ctx.fillRect(x,y,w,h);
+  // offene Türen
+  ctx.fillStyle='#7a4a22'; ctx.fillRect(x-14,y,10,h); ctx.fillRect(x+w+4,y,10,h);
+  ctx.fillStyle='#ffd34d'; ctx.fillRect(x-7,y+h/2,2,5); ctx.fillRect(x+w+5,y+h/2,2,5);
+  const rowY=[y+36, y+62, y+96];
+  for(let r=0;r<3;r++){ ctx.fillStyle='#5b3a1e'; ctx.fillRect(x,rowY[r]+(r===0?2:0),w,3); }
+  GUARD_ARMORS.forEach((A,i)=>{ const ix=x+14+i*25; drawGuardFig(ix, rowY[0]+2, 1, {mode:'stand', armor:A, scale:0.78, idle:i}); if(maxLvl<A.lvl) drawLockMini(ix, rowY[0]-12); });
+  GUARD_CANNONS.forEach((C,i)=>{ const ix=x+8+i*25; ctx.save(); ctx.translate(ix, rowY[1]-6); drawCannonShape(C.id,false); ctx.restore(); if(maxLvl<C.lvl) drawLockMini(ix+8, rowY[1]-8); });
+  GUARD_WEAPONS.forEach((Wp,i)=>{ const ix=x+14+i*25; ctx.save(); ctx.translate(ix, rowY[2]-4); drawWeaponShape(Wp.id, 24); ctx.restore(); if(maxLvl<Wp.lvl) drawLockMini(ix+6, rowY[2]-16); });
+  ctx.fillStyle='#ffe6a0'; ctx.font='bold 7px monospace'; ctx.textAlign='center'; ctx.fillText('🗄️ WAFFENSCHRANK', cx, y-16);
+}
+function drawLockMini(x,y){ ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill(); ctx.font='6px serif'; ctx.textAlign='center'; ctx.fillText('🔒',x,y+2); }
+
+function drawTrainingRoom(VW,VH,fy){
+  stoneWall(0,0,VW,fy); ctx.fillStyle='rgba(10,5,0,0.45)'; ctx.fillRect(0,0,VW,fy);
+  ctx.fillStyle='#c9a46a'; ctx.fillRect(0,fy,VW,VH-fy);                     // Sandboden
+  ctx.fillStyle='rgba(120,90,50,0.35)'; for(let x=7;x<VW;x+=23) ctx.fillRect(x,fy+4+(x%3)*3,8,1.5);
+  for(const x of [VW*0.1, VW*0.35, VW*0.6, VW*0.85]) drawTorch(x, fy-86);
+  // Waffenständer mit Holzschwertern
+  ctx.fillStyle='#5b3a1e'; ctx.fillRect(16,fy-58,40,3); ctx.fillRect(16,fy-30,40,3);
+  for(let i=0;i<4;i++){ ctx.save(); ctx.translate(22+i*10,fy-34); drawWeaponShape('wood',26); ctx.restore(); }
+  ctx.fillStyle='#ffe6a0'; ctx.font='bold 7px monospace'; ctx.textAlign='center';
+  ctx.fillText('🪵 ÜBUNGSKAMPF – Holzschwerter machen keinen Schaden, Schilde bleiben heil', VW/2, fy-104);
+  // Treppe nach oben
+  const sx=castleSpots().stair;
+  for(let i=0;i<7;i++){ ctx.fillStyle=`rgb(${120-i*6},${108-i*6},${96-i*6})`; ctx.fillRect(sx-28+i*8,fy-(i+1)*12,60-i*8,12); }
+  ctx.fillStyle='#ffe6a0'; ctx.fillText('⬆ HALLE', sx+8, fy-92);
+  // Sparrings-Paare
+  if(!guards.length){
+    ctx.fillStyle='#fff'; ctx.font='bold 9px monospace';
+    ctx.fillText('Noch keine Wachen – wirb oben beim Hauptmann welche an!', VW/2, fy-60);
+    for(const x of [VW*0.35, VW*0.55]){ ctx.fillStyle='#8a5a2b'; ctx.fillRect(x-2,fy-30,4,30); ctx.fillStyle='#d8b070'; ctx.beginPath(); ctx.ellipse(x,fy-30,8,10,0,0,Math.PI*2); ctx.fill(); }
+    return;
+  }
+  const show=Math.min(12, guards.length), start = guards.length>12 ? (Math.floor(frame/480)*12)%guards.length : 0;
+  const list=[]; for(let i=0;i<show;i++) list.push(guards[(start+i)%guards.length]);
+  const pairs=Math.ceil(list.length/2), areaW=VW-150, x0=80;
+  for(let p=0;p<pairs;p++){
+    const a=list[p*2], b=list[p*2+1];
+    const pcx = pairs===1 ? x0+areaW/2 : x0 + p*areaW/Math.max(1,pairs-1);
+    const t=(frame+p*37)%120, cyc=Math.floor((frame+p*37)/120);
+    // Phase 0–60: A greift an, 60–120: B greift an
+    const aAtk=t<60, tt=t%60, swing = tt>30&&tt<44 ? (tt-30)/14 : 0;
+    const blocked = ((cyc*7+p*13+(aAtk?0:5))%10) < 5;
+    const defBlock = blocked && tt>26 && tt<50;
+    if(tt===42){
+      const tx = aAtk ? pcx+16 : pcx-16;
+      if(blocked){ castlePops.push({x:tx,y:fy-64-(p%2)*9,t:'🛡️ Geblockt! Schild heil',col:'#9df',life:55}); if(p===0) playFX(700,0.05,'triangle',0.05); }
+      else { castlePops.push({x:tx,y:fy-64-(p%2)*9,t:'🪵 Treffer! ❤ bleibt',col:'#ffd27a',life:55}); if(p===0) playFX(240,0.06,'square',0.05); }
+    }
+    const drawOne=(g,x,f,atk)=>{
+      if(!g) return;
+      drawGuardFig(x, fy, f, {mode:'spar', armor:gearOf(GUARD_ARMORS,g.armor), swing:atk?swing:0, block:!atk&&defBlock, idle:g.id});
+      drawGuardBars(x, fy-50, g);
+      ctx.fillStyle='#fff'; ctx.font='bold 6px monospace'; ctx.textAlign='center';
+      ctx.fillText(`#${g.id} Lv ${g.lvl}`, x, fy-53);
+      const need=guardXpNeed(g.lvl); ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(x-9,fy+3,18,2.5);
+      ctx.fillStyle='#ffd34d'; ctx.fillRect(x-9,fy+3,18*(g.lvl>=GUARD_LVL_MAX?1:g.xp/need),2.5);
+    };
+    drawOne(a, pcx-16, 1, aAtk);
+    if(b) drawOne(b, pcx+16, -1, !aAtk);
+    else { ctx.fillStyle='#8a5a2b'; ctx.fillRect(pcx+14,fy-30,4,30); ctx.fillStyle='#d8b070'; ctx.beginPath(); ctx.ellipse(pcx+16,fy-30,7,9,0,0,Math.PI*2); ctx.fill(); }
+  }
+  // Übersicht
+  const lv=guards.map(g=>g.lvl), mn=Math.min(...lv), mx=Math.max(...lv);
+  const nxt=[...GUARD_ARMORS,...GUARD_CANNONS,...GUARD_WEAPONS].filter(it=>it.lvl>mn).sort((a,b)=>a.lvl-b.lvl)[0];
+  const pY=Math.max(48, 92/castleK()); ctx.fillStyle='rgba(20,10,5,0.78)'; ctx.beginPath(); ctx.roundRect(8,pY,200,34,6); ctx.fill();
+  ctx.fillStyle='#ffe6a0'; ctx.font='bold 7px monospace'; ctx.textAlign='left';
+  ctx.fillText(`🛡️ ${guards.length} Wachen  ·  Level ${mn===mx?mn:mn+'–'+mx}`, 14, pY+12);
+  ctx.fillText(nxt ? `Nächste Freischaltung: Lv ${nxt.lvl} ${nxt.icon} ${nxt.name}` : '🏆 Alles freigeschaltet (Level 100)', 14, pY+24);
+  if(guards.length>12){ ctx.fillStyle='#ddd'; ctx.fillText(`(alle ${guards.length} trainieren – hier siehst du ${show})`, 14, pY+44); }
+}
+
+// ── Waffenschrank-Fenster ──
+function armoryItems(){ const out=[]; GEAR_LISTS.forEach((L,c)=>L.forEach((it,r)=>out.push({c,r,it,slot:GEAR_SLOTS[c]}))); return out; }
+function armoryEquip(idx){
+  const g=guards[armoryGi]; const e=armoryItems()[idx]; if(!e) return;
+  if(!g){ armoryMsg='Noch keine Wachen – wirb beim Hauptmann welche an!'; return; }
+  if(!gearFree(g,e.it)){ armoryMsg=`🔒 ${e.it.name} gibt es ab Level ${e.it.lvl} (Wache #${g.id} hat Level ${g.lvl})`; playFX(200,0.1,'square',0.08); return; }
+  g[e.slot]=e.it.id; g.auto=false; armoryMsg=`✓ Wache #${g.id} trägt jetzt: ${e.it.icon} ${e.it.name}`; playFX(700,0.1,'sine',0.12);
+}
+function armoryBestAll(){
+  guards.forEach(g=>{ equipBest(g); g.auto=true; });
+  armoryMsg = guards.length ? '⭐ Alle Wachen tragen jetzt ihre beste freigeschaltete Ausrüstung' : 'Noch keine Wachen.'; playFX(880,0.15,'sine',0.12);
+}
+function handleArmoryKey(code){
+  const n=guards.length;
+  if(code==='Escape'){ armoryOpen=false; return; }
+  if(code==='ArrowLeft' && n){ armoryGi=(armoryGi-1+n)%n; armoryMsg=''; }
+  if(code==='ArrowRight' && n){ armoryGi=(armoryGi+1)%n; armoryMsg=''; }
+  if(code==='ArrowUp') armorySel=(armorySel+14)%15;
+  if(code==='ArrowDown') armorySel=(armorySel+1)%15;
+  if(code==='Tab') armorySel=(Math.floor(armorySel/5)*5+5)%15;
+  if(code==='Digit1'||code==='Numpad1') armorySel=0;
+  if(code==='Digit2'||code==='Numpad2') armorySel=5;
+  if(code==='Digit3'||code==='Numpad3') armorySel=10;
+  if(code==='Enter'||code==='Space') armoryEquip(armorySel);
+  if(code==='KeyB') armoryBestAll();
+}
+function renderArmory(){
+  const PW=860, PH=560, PX=W/2-PW/2, PY=H/2-PH/2;
+  uiBegin('armory', uiFitK(PW+20, PH+20), W/2, H/2);
+  armoryHits=[];
+  ctx.fillStyle='rgba(30,16,6,0.97)'; ctx.beginPath(); ctx.roundRect(PX,PY,PW,PH,16); ctx.fill();
+  ctx.strokeStyle='#ffd34d'; ctx.lineWidth=3; ctx.beginPath(); ctx.roundRect(PX,PY,PW,PH,16); ctx.stroke();
+  ctx.textAlign='center'; ctx.fillStyle='#ffd34d'; ctx.font='bold 22px Courier New'; ctx.fillText('🗄️ WAFFENSCHRANK', W/2, PY+32);
+  const g=guards[armoryGi];
+  // Wachen-Auswahl
+  const bl={x:PX+20,y:PY+46,w:48,h:40}, br={x:PX+PW-68,y:PY+46,w:48,h:40};
+  for(const [b,t] of [[bl,'◀'],[br,'▶']]){ ctx.fillStyle='rgba(120,80,20,0.9)'; ctx.beginPath(); ctx.roundRect(b.x,b.y,b.w,b.h,9); ctx.fill(); ctx.fillStyle='#fff'; ctx.font='bold 20px Arial'; ctx.fillText(t,b.x+b.w/2,b.y+27); }
+  armoryHits.push({...bl,id:'prev'},{...br,id:'next'});
+  ctx.fillStyle='#fff'; ctx.font='bold 17px Courier New';
+  if(g){
+    ctx.fillText(`Wache #${g.id}  ·  Level ${g.lvl}  ·  ❤ ${Math.round(g.hp)}/100  ·  🛡 ${Math.round(g.sh)}%   (${armoryGi+1}/${guards.length})`, W/2, PY+64);
+    const need=guardXpNeed(g.lvl), pr=g.lvl>=GUARD_LVL_MAX?1:g.xp/need;
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(W/2-180,PY+73,360,9); ctx.fillStyle='#ffd34d'; ctx.fillRect(W/2-180,PY+73,360*pr,9);
+    ctx.fillStyle='#ccb'; ctx.font='11px Courier New'; ctx.fillText(g.lvl>=GUARD_LVL_MAX?'🏆 Höchstes Level – alles freigeschaltet':`Training bis Level ${g.lvl+1}`, W/2, PY+94);
+  } else ctx.fillText('Noch keine Wachen – wirb beim Hauptmann welche an!', W/2, PY+70);
+  // Vorschau der gewählten Wache
+  const px=PX+86, py=PY+380;
+  ctx.fillStyle='rgba(255,220,140,0.08)'; ctx.beginPath(); ctx.roundRect(PX+16,PY+110,140,330,12); ctx.fill();
+  if(g){ drawGuardFig(px, py, 1, {mode:'march', armor:gearOf(GUARD_ARMORS,g.armor), cannon:g.cannon, weapon:g.weapon, scale:4, idle:0}); }
+  ctx.fillStyle='#ffe6a0'; ctx.font='bold 12px Courier New'; ctx.fillText(g?'So sieht sie aus':'', px, PY+428);
+  // Spalten
+  const colX=PX+170, colW=(PW-190)/3, rowH=60, y0=PY+130;
+  GEAR_LISTS.forEach((L,c)=>{
+    const cx=colX+c*colW;
+    ctx.fillStyle='#ffd34d'; ctx.font='bold 15px Courier New'; ctx.textAlign='center'; ctx.fillText(GEAR_TITLES[c], cx+colW/2, y0-10);
+    L.forEach((it,r)=>{
+      const idx=c*5+r, x=cx+4, y=y0+r*rowH, w=colW-8, h=rowH-6;
+      const free=gearFree(g,it), on=g && g[GEAR_SLOTS[c]]===it.id, sel=armorySel===idx;
+      ctx.fillStyle= on?'rgba(40,120,40,0.85)': free?'rgba(90,60,25,0.85)':'rgba(55,55,60,0.75)';
+      ctx.beginPath(); ctx.roundRect(x,y,w,h,9); ctx.fill();
+      if(sel){ ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.roundRect(x,y,w,h,9); ctx.stroke(); }
+      // kleines Bild
+      ctx.save(); ctx.translate(x+24, y+h-8);
+      if(c===0) drawGuardFig(0,0,1,{mode:'stand',armor:it,scale:1.05});
+      else if(c===1){ ctx.translate(-12,-18); drawCannonShape(it.id,false); }
+      else { ctx.translate(0,-6); ctx.rotate(0.6); drawWeaponShape(it.id,26); }
+      ctx.restore();
+      if(!free){ ctx.font='15px serif'; ctx.textAlign='center'; ctx.fillText('🔒', x+24, y+22); }
+      ctx.textAlign='left'; ctx.fillStyle=free?'#fff':'#9a9aa2'; ctx.font='bold 13px Courier New';
+      ctx.fillText(it.name, x+48, y+18);
+      ctx.font='11px Courier New'; ctx.fillStyle=free?'#e8d8b0':'#888';
+      const stat = c===0 ? `Schutz ${Math.round(it.prot*100)}%` : c===1 ? `Schaden ${it.dmg}${it.shots>1?' ×2':''}` : (it.melee?`Nahkampf ${it.melee}`:'nur Training');
+      ctx.fillText(stat+(it.best?'  ★ beste':''), x+48, y+33);
+      ctx.fillStyle= on?'#bfffbf': free?'#ffe680':'#ff9a9a'; ctx.font='bold 11px Courier New';
+      ctx.fillText(on?'★ angelegt': free?'✓ verfügbar – antippen':`🔒 gesperrt · ab Lv ${it.lvl}`, x+48, y+47);
+      armoryHits.push({x,y,w,h,id:'item',idx});
+    });
+  });
+  if(armoryMsg){ ctx.textAlign='center'; ctx.fillStyle='#bfffbf'; ctx.font='bold 13px Courier New'; ctx.fillText(armoryMsg, W/2, PY+PH-58); }
+  const bb={x:W/2-300,y:PY+PH-44,w:300,h:32}, cb={x:W/2+20,y:PY+PH-44,w:200,h:32};
+  ctx.fillStyle='rgba(0,120,60,0.95)'; ctx.beginPath(); ctx.roundRect(bb.x,bb.y,bb.w,bb.h,9); ctx.fill();
+  ctx.fillStyle='rgba(130,30,30,0.95)'; ctx.beginPath(); ctx.roundRect(cb.x,cb.y,cb.w,cb.h,9); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
+  ctx.fillText('⭐ B: Beste Ausrüstung für alle', bb.x+bb.w/2, bb.y+21); ctx.fillText('ESC: Schließen', cb.x+cb.w/2, cb.y+21);
+  armoryHits.push({...bb,id:'best'},{...cb,id:'close'});
+  ctx.fillStyle='#aa9'; ctx.font='11px Courier New'; ctx.fillText('← → Wache wechseln   ↑ ↓ auswählen   ENTER anlegen', W/2, PY+PH-6);
+  uiEnd();
+}
+// Tippen/Klicken im Schloss
+function handleCastleTap(sx,sy){
+  if(gs!==S.CASTLE || dialog) return false;
+  if(armoryOpen){
+    const q=uiInv('armory',sx,sy), h=armoryHits.find(b=>q.x>=b.x&&q.x<=b.x+b.w&&q.y>=b.y&&q.y<=b.y+b.h);
+    if(!h) return true;
+    if(h.id==='close') armoryOpen=false;
+    else if(h.id==='prev') handleArmoryKey('ArrowLeft');
+    else if(h.id==='next') handleArmoryKey('ArrowRight');
+    else if(h.id==='best') armoryBestAll();
+    else if(h.id==='item'){ armorySel=h.idx; armoryEquip(h.idx); }
+    return true;
+  }
+  const K=castleK(), vx=sx/K, vy=sy/K, fy=castleFloorY(), sp=castleSpots();
+  if(vy<fy-130 || vy>castleVH()) return false;
+  const hitObj = Object.entries({door:24, desk:34, cab:70, stair:36}).find(([k,r])=>sp[k]!==undefined && Math.abs(vx-sp[k])<r);
+  if(hitObj){ hero.x=sp[hitObj[0]]-hero.w/2; castleAct(hitObj[0]); return true; }
+  return false;
 }
 
 function drawHouse(wx, gy){
@@ -5334,6 +5854,7 @@ function drawVirtualButtons() {
   const visible = new Set();
   if (inLaunch)  { visible.add('tLeft'); visible.add('tRight'); visible.add('tUp'); visible.add('tBoard'); }
   if (inSpace)   { visible.add('tLeft'); visible.add('tRight'); visible.add('tUp'); }
+  if (gs===S.CASTLE && !armoryOpen) { visible.add('tLeft'); visible.add('tRight'); }
   if (inSurface||inBoss) {
     visible.add('tLeft'); visible.add('tRight'); visible.add('tJump');
     visible.add('tShoot'); visible.add('tShield');
@@ -9335,6 +9856,7 @@ canvas.addEventListener('click', e=>{
     return;
   }
   { const r=canvas.getBoundingClientRect(); const sx=(e.clientX-r.left)*(W/r.width), sy=(e.clientY-r.top)*(H/r.height);
+    if(handleCastleTap(sx,sy)) return;
     if(!dialog && (handleExchangeTap(sx,sy)||handleBrewTap(sx,sy)||handleNurseryTap(sx,sy)||handleForestTap(sx,sy)||handlePotionTap(sx,sy))) return;
     if(handleMissileTap(sx,sy)) return; }
   { const r=canvas.getBoundingClientRect();
@@ -10418,7 +10940,8 @@ function updateTouchUI() {
   const inSpace   = gs === S.SPACE;
   const inSurface = gs === S.SURFACE;
   const inBoss    = gs === S.BOSS;
-  const anyGame   = inLaunch || inSpace || inSurface || inBoss;
+  const inCastleS = gs === S.CASTLE && !armoryOpen;
+  const anyGame   = inLaunch || inSpace || inSurface || inBoss || inCastleS;
 
   document.getElementById('touchUI').classList.toggle('active', anyGame);
   document.getElementById('tActionBar').classList.toggle('active', anyGame);
@@ -10450,6 +10973,9 @@ function updateTouchUI() {
     const nearRkt = inRocket || Math.abs(hero.x - srkt.x) < 120;
     show('tBoard', nearRkt);
     el('tBoard').textContent = inRocket ? '🚶 A' : '🚀 A';
+  } else if (inCastleS) {
+    show('tLeft', true); show('tRight', true);
+    ['tUp','tJump','tShoot','tShield','tBoard'].forEach(id => show(id, false));
   } else if (inBoss) {
     show('tLeft', true); show('tRight', true); show('tJump', true);
     show('tShoot', true); show('tShield', true);
@@ -10574,6 +11100,7 @@ function handleGameAreaTap(x, y) {
 
   // 💾 Save-Button oben links
   if ((gs===S.SURFACE||gs===S.SPACE||gs===S.LAUNCH) && !dialog && (()=>{const b=getSaveButtonRect(); return cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h;})()) { openSaveMenu(); return; }
+  if (handleCastleTap(cx, cy)) return;
   if (!dialog && (handleExchangeTap(cx, cy)||handleBrewTap(cx, cy)||handleNurseryTap(cx, cy)||handleForestTap(cx, cy)||handlePotionTap(cx, cy))) return;
   // Eis-Lenkrakete button in boss fights
   if (handleMissileTap(cx, cy)) return;
@@ -10602,7 +11129,7 @@ function handleGameAreaTap(x, y) {
   // Surface building interactions (tap anywhere NOT on a virtual button)
   if (gs === S.SURFACE && currentPlanet === 'earth' && !inRocket && interactCooldown === 0) {
     const CHEST_X=1490, KIOSK_X=1320, HOUSE_X=1160;
-    if (nearCastle() && !mathQuiz && !kioskOpen) { openGuardShop(); interactCooldown = 30; return; }
+    if (nearCastle() && !mathQuiz && !kioskOpen) { enterCastleInside(); return; }
     if (Math.abs(hero.x - CHEST_X) < 130 && !mathQuiz && !kioskOpen) {
       startMathQuiz(); interactCooldown = 30; return;
     }
@@ -11323,7 +11850,7 @@ function saveQuestPackage() {
   <button class="tBarBtn" id="tChest" style="display:none">🎁 Truhe (E)</button>
   <button class="tBarBtn" id="tKiosk" style="display:none">🛒 Kiosk (K)</button>
   <button class="tBarBtn" id="tHouse" style="display:none">🏠 Herz (H)</button>
-  <button class="tBarBtn" id="tCastle" style="display:none">🏰 Wachen (ENTER)</button>
+  <button class="tBarBtn" id="tCastle" style="display:none">🏰 Hinein (ENTER)</button>
   <!-- Save handled by canvas drawing + tap -->
 </div>
 
